@@ -20,35 +20,42 @@
 library(here)
 library(dplyr)
 library(tidyr)
+library(vroom)
 library(readr)
 library(readxl)
 library(stringr)
 library(glue)
 library(purrr)
 library(kewr)
+library(progress)
 
 source(here("R/helper_functions.R"))
 
+# setup directories ----
+dir.create(here("output/name_matching"), showWarnings=FALSE)
+
 # load assessments ----
-rl_assessments <- read_csv(here("data/redlist_plants_2020_3/assessments.csv"))
-rl_taxonomy <- read_csv(here("data/redlist_plants_2020_3/taxonomy.csv"))
+rl_assessments <- vroom(here("data/redlist_plants_2021_1/assessments.csv"))
+rl_taxonomy <- vroom(here("data/redlist_plants_2021_1/taxonomy.csv"))
 
 # also have legume assessments from SRLI
 srli_legume_assessments <- read_excel(here("data/srli_assessed_legumes.xlsx"))
 
 # and Myrcia assessments that haven't been published yet
-ws_assessments <- read_csv(here("data/myrcias_from_working_set.csv"))
+ws_assessments <- vroom(here("data/myrcias_from_working_set.csv"))
 
-# collate myrcia assessments ----
+# match myrcia assessment names ----
 
 # genera in Myrcia s.l.
 genera <- c("Myrcia", "Gomidesia", "Mitranthes",
             "Calyptranthes", "Marlierea")
 
 # get checklist of species from WCVP
-myrcia_accepted <- map(genera, ~search_wcvp(list(genus=.x), 
-                                            filters=c("species", "accepted"), 
-                                            limit=1000))
+myrcia_accepted <- map(genera, 
+                       ~search_wcvp(list(genus=.x), 
+                                    filters=c("species", "accepted"), 
+                                    limit=1000))
+
 myrcia_accepted <-
   myrcia_accepted %>%
   map_dfr(tidy) %>%
@@ -120,7 +127,7 @@ matched_names <-
 # lookup WCVP taxonomic info for matches
 matched_names <- 
   matched_names %>%
-  get_accepted_info() %>%
+  get_accepted_info(.wait=0.1) %>%
   mutate(info=extract_wcvp_(wcvp)) %>%
   unnest(cols=c(info)) %>%
   resolve_accepted_() %>%
@@ -165,24 +172,12 @@ myrcia_list <-
                          `Extinct`="EX"))
 
 # save to file for analysis
-write_csv(myrcia_list, here("output/myrcia_species_list.csv"))
+write_csv(myrcia_list, here("output/myrcia-rl_species-list.csv"))
 
-# download myrcia distributions ----
-
-myrcia_distribution <-
-  myrcia_list %>%
-  select(id, name) %>%
-  get_native_ranges(.wait=0.5) %>%
-  unnest(cols=c(distribution))
-
-write_csv(myrcia_distribution, here("output/myrcia_distributions.csv"))
-
-# collate legume assessments ----
-
-# get an accepted species checklist from WCVP
-legumes_accepted <- search_wcvp(list(family="Fabaceae"), 
+# match legume assessment names ----
+legumes_accepted <- search_wcvp(list(family="Fabaceae"),
                                 filters=c("accepted", "species"),
-                                limit=30000)
+                                limit=50000)
 
 legumes_accepted <-
   legumes_accepted %>%
@@ -273,12 +268,12 @@ matched_names <-
 # lookup WCVP taxonomic info for matches
 matched_names <- 
   matched_names %>%
-  get_accepted_info() %>%
+  get_accepted_info(.wait=0.1) %>%
   mutate(info=extract_wcvp_(wcvp)) %>%
   unnest(cols=c(info)) %>%
   resolve_accepted_() %>%
   select(-wcvp)
-
+  
 legume_assessments <-
   legume_assessments %>%
   left_join(matched_names, by=c("assessmentId", "internalTaxonId"))
@@ -311,7 +306,7 @@ legume_list <-
                          `Extinct`="EX"))
 
 # save to file for analysis
-write_csv(legume_list, here("output/legume_species_list.csv"))
+write_csv(legume_list, here("output/legume-rl_species-list.csv"))
 
 # make the same but with just SRLI legume assessments
 
@@ -319,23 +314,14 @@ legume_list %>%
   mutate(category=ifelse(! taxon_id %in% srli_legume_assessments$taxonid,
                          NA_character_,
                          category)) %>%
-  write_csv(here("output/srli_legume_species_list.csv"))
+  write_csv(here("output/legume-srli_species-list.csv"))
 
-# legume accepted distributions ----
-legume_distribution <-
-  legumes_accepted %>%
-  select(id, name) %>%
-  get_all_ranges()
-
-write_csv(legume_distribution, here("output/legume_distributions.csv"))
-
-# orchid names and assessments ----
+# match orchid assessment names ----
 
 # get all accepted species in Orchidaceae
-orchids_accepted <- search_wcvp(list(family="Orchidaceae"), 
+orchids_accepted <- search_wcvp(list(family="Orchidaceae"),
                                 filters=c("accepted", "species"),
                                 limit=50000)
-
 orchids_accepted <-
   orchids_accepted %>%
   tidy() %>%
@@ -389,7 +375,7 @@ matched_names <-
 # lookup WCVP taxonomic info for matches
 matched_names <- 
   matched_names %>%
-  get_accepted_info() %>%
+  get_accepted_info(.wait=0.1) %>%
   mutate(info=extract_wcvp_(wcvp)) %>%
   unnest(cols=c(info)) %>%
   resolve_accepted_() %>%
@@ -427,14 +413,30 @@ orchid_list <-
                          `Extinct`="EX"))
 
 # save to file for analysis
-write_csv(orchid_list, here("output/orchid_species_list.csv"))
+write_csv(orchid_list, here("output/orchid-rl_species-list.csv"))
 
-# orchid accepted distributions ----
-orchids_distribution_new <-
-  orchid_list %>%
-  filter(! id %in% orchid_distribution$id) %>%
+# download distributions ----
+
+myrcia_distribution <-
+  myrcia_list %>%
   select(id, name) %>%
-  get_native_ranges(.wait=1) %>%
+  get_native_ranges(.wait=0.3) %>%
+  unnest(cols=c(distribution))
+
+write_csv(myrcia_distribution, here("output/myrcia_distributions.csv"))
+
+legume_distribution <-
+  legume_list %>%
+  select(id, name) %>%
+  get_native_ranges(.wait=0.15) %>%
+  unnest(cols=c(distribution))
+
+write_csv(legume_distribution, here("output/legume_distributions.csv"))
+
+orchids_distribution <-
+  orchid_list %>%
+  select(id, name) %>%
+  get_native_ranges(.wait=0.15) %>%
   unnest(cols=c(distribution))
 
 write_csv(orchids_distribution, here("output/orchid_distributions.csv"))
