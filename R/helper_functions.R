@@ -838,7 +838,8 @@ calculate_permutation_importance <- function(x, wf, metrics, .times=100) {
               .groups="drop")
 }
 
-apply_logistic_model <- function(preds, formula, group_vars) {
+apply_logistic_model <- function(preds, formula, ...) {
+  group_vars <- enquos(...)
   m <- function(x) {
     x %>%
       glm(formula, family="binomial", data=.) %>%
@@ -846,9 +847,12 @@ apply_logistic_model <- function(preds, formula, group_vars) {
   }
   
   preds %>%
-    nest_by({{group_vars}}) %>%
+    nest_by(!!! group_vars) %>%
     mutate(.model=m(data)) %>%
-    mutate(.coef=list(tidy(.model)))
+    mutate(.coef=list(tidy(.model))) %>%
+    select(-data, -.model) %>%
+    tidyr::unnest(cols=c(.coef)) %>%
+    ungroup()
 }
 
 get_importance <- function(fit_obj, set=c("train", "valid"), metrics=NULL) {

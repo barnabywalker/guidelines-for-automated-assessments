@@ -51,7 +51,8 @@ threshold_performance <-
   eval_metrics(truth=obs, estimate=.pred_class) %>%
   ungroup() %>%
   # add an extra column to match other files
-  mutate(id2=NA_character_)
+  mutate(id2=NA_character_) %>%
+  select(id, id2, .metric, .esimate)
 
 # predict unlabelled data
 threshold_predictions <-
@@ -65,14 +66,16 @@ threshold_accuracy_models <-
     by="wcvp_id"
   ) %>%
   mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id)
+  apply_logistic_model(correct ~ log10(n_specimens), id) %>%
+  mutate(id2=NA_character_) %>%
+  select(id, id2, term, estimate, std.error, statistic, p.value)
   
 
 # save everything
 write_csv(threshold_performance, glue("{output_dir}/{output_name}_model-threshold_performance.csv"))
 write_csv(threshold_test_predictions, glue("{output_dir}/{output_name}_model-threshold_test-predictions.csv"))
 write_csv(threshold_predictions, glue("{output_dir}/{output_name}_model-threshold_predictions.csv"))
-write_rds(threshold_accuracy_models, glue("{output_dir}/{output_name}_model-threshold_accuracy-models.rds"))
+write_csv(threshold_accuracy_models, glue("{output_dir}/{output_name}_model-threshold_accuracy-models.csv"))
 
 # logistic regression ----
 splits <- vfold_cv(labelled, v=5, repeats=10)
@@ -145,7 +148,7 @@ log_accuracy_models <-
     by="wcvp_id"
   ) %>%
   mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id)
+  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
 
 # save everything
 write_rds(log_results, glue("{model_dir}/{output_name}_model-logistic.rds"))
@@ -153,7 +156,7 @@ write_csv(log_performance, glue("{output_dir}/{output_name}_model-logistic_perfo
 write_csv(log_test_predictions, glue("{output_dir}/{output_name}_model-logistic_test-predictions.csv"))
 write_csv(log_predictions, glue("{output_dir}/{output_name}_model-logistic_predictions.csv"))
 write_csv(log_learning, glue("{output_dir}/{output_name}_model-logistic_learning-curve.csv"))
-write_rds(log_accuracy_models, glue("{output_dir}/{output_name}_model-logistic_accuracy-models.rds"))
+write_csv(log_accuracy_models, glue("{output_dir}/{output_name}_model-logistic_accuracy-models.csv"))
 
 # simple decision tree (stump) ----
 splits <- vfold_cv(labelled, v=5, repeats=10)
@@ -226,7 +229,7 @@ stump_accuracy_models <-
     by="wcvp_id"
   ) %>%
   mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id)
+  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
 
 # save everything
 write_rds(stump_results, glue("{model_dir}/{output_name}_model-stump.rds"))
@@ -234,7 +237,7 @@ write_csv(stump_performance, glue("{output_dir}/{output_name}_model-stump_perfor
 write_csv(stump_test_predictions, glue("{output_dir}/{output_name}_model-stump_test-predictions.csv"))
 write_csv(stump_predictions, glue("{output_dir}/{output_name}_model-stump_predictions.csv"))
 write_csv(stump_learning, glue("{output_dir}/{output_name}_model-stump_learning-curve.csv"))
-write_rds(stump_accuracy_models, glue("{output_dir}/{output_name}_model-stump_accuracy-models.rds"))
+write_csv(stump_accuracy_models, glue("{output_dir}/{output_name}_model-stump_accuracy-models.csv"))
 
 # simple decision tree (stump) ----
 splits <- vfold_cv(labelled, v=5, repeats=10)
@@ -309,7 +312,7 @@ dt_accuracy_models <-
     by="wcvp_id"
   ) %>%
   mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id)
+  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
 
 # save everything
 write_rds(dt_results, glue("{model_dir}/{output_name}_model-dt.rds"))
@@ -317,7 +320,7 @@ write_csv(dt_performance, glue("{output_dir}/{output_name}_model-dt_performance.
 write_csv(dt_test_predictions, glue("{output_dir}/{output_name}_model-dt_test-predictions.csv"))
 write_csv(dt_predictions, glue("{output_dir}/{output_name}_model-dt_predictions.csv"))
 write_csv(dt_learning, glue("{output_dir}/{output_name}_model-dt_learning-curve.csv"))
-write_rds(dt_accuracy_models, glue("{output_dir}/{output_name}_model-dt_accuracy-models.rds"))
+write_csv(dt_accuracy_models, glue("{output_dir}/{output_name}_model-dt_accuracy-models.csv"))
 
 
 # random forests ----
@@ -413,7 +416,7 @@ rf_accuracy_models <-
     by="wcvp_id"
   ) %>%
   mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id)
+  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
 
 # save everything
 write_rds(rf_results, glue("{model_dir}/{output_name}_model-rf.rds"))
@@ -423,4 +426,4 @@ write_csv(rf_predictions, glue("{output_dir}/{output_name}_model-rf_predictions.
 write_csv(rf_importance, glue("{output_dir}/{output_name}_model-rf_importance.csv"))
 write_csv(rf_valid_importance, glue("{output_dir}/{output_name}_model-rf_valid-importance.csv"))
 write_csv(rf_learning, glue("{output_dir}/{output_name}_model-rf_learning-curve.csv"))
-write_rds(rf_accuracy_models, glue("{output_dir}/{output_name}_model-rf_accuracy-models.rds"))
+write_csv(rf_accuracy_models, glue("{output_dir}/{output_name}_model-rf_accuracy-models.csv"))

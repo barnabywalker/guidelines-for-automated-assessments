@@ -281,6 +281,9 @@ legume_assessments <-
 # save the whole matching results
 write_csv(legume_assessments, here("output/name_matching/legume_assessments_results.csv"))
 
+# remove assessments for the same accepted name
+legume_assessments <- distinct(legume_assessments, accepted_id)
+
 # join assessments to all accepted names to get species list
 legume_list <-
   legumes_accepted %>%
