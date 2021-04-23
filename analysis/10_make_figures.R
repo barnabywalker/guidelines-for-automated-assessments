@@ -1,32 +1,153 @@
-#' Make figures for manuscript and supplementary materials
+#' Make figures for manuscript.
 #' 
 
 # libraries ----
 library(here)
 library(vroom)
 library(dplyr)
+library(readr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
-library(sf)
 library(glue)
+library(scales)
+library(ggforce)
+library(ggridges)
 library(patchwork)
 
 source(here("R/plotting_functions.R"))
 
-# 1. performance grid ----
-group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)")
-model_names <- c("IUCN threshold", "Logistic regression", "Random forest")
+# themes ----
+theme_grid <- function(...) {
+  theme_bw() +
+  theme(
+    panel.grid.major.x=element_line(linetype=3, colour="grey80"),
+    panel.grid.minor.x=element_blank(),
+    panel.grid.major.y=element_blank(),
+    panel.grid.minor.y=element_blank(),
+    panel.border=element_rect(colour="grey60"),
+    strip.background=element_rect(colour="grey60"),
+    legend.position="bottom"
+  )
+}
 
-performance <- vroom(here("output/study_results/performance.csv"))
+# names ----
+group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
+group_names_small <- c("Myrcia", "Orchids", "Legumes")
 
+model_names <- c("IUCN threshold", "Decision stump", "Decision tree", "Random forest")
+downsample_names <- c("no"="no downsampling",
+                      "yes"="downsampling")
+status_names <- c("labelled"="evaluated, non-DD", 
+                  "unlabelled"="not evaluated or DD")
+feature_names <- c("eoo"="EOO",
+                   "hpd"="Minimum HPD",
+                   "hfi"="HFI",
+                   "precipitation_driest"="Precipitation in\ndriest quarter",
+                   "forest_loss"="Forest loss",
+                   "temperature_annual"="Average annual\ntemperature",
+                   "elevation"="Elevation",
+                   "centroid_latitude"="Latitude of\nrange centroid")
+units <- c(
+  "EOO"="km^2",
+  "Minimum HPD"="persons / km^2",
+  "Precipitation in\ndriest quarter"="mm",
+  "Latitude of\nrange centroid"="\u00b0",
+  "Elevation"="m",
+  "Average annual\ntemperature"="\u00b0C",
+  "HFI"=NA_character_,
+  "Forest loss"=NA_character_
+)
+
+
+# colours ----
+downsample_colours <- c(
+  "no downsampling"="#ffd700",
+  "downsampling"="#0000ff"
+)
+
+pooling_colours <- c(
+  "combined"="#ffb14e",
+  "individual"="#9d02d7"
+)
+
+status_colours <- c(
+  "evaluated, non-DD"="#eb0001", 
+  "not evaluated or DD"="#ff9774"
+)
+
+target_colours <- c(
+  "IUCN RL"="#cd34b5",
+  "SRLI"="#fa8775"
+)
+
+# load data ----
+# data summary statistics
+processing_stats <- vroom(here("output/results/processing_stats.csv"))
+occurrence_stats <- vroom(here("output/results/occurrence_stats.csv"))
+
+# method performance
+performance <- vroom(here("output/results/performance.csv"))
+group_performance <- vroom(here("output/results/groupwise_performance.csv"))
+
+# predictions of threat
+predicted_threat <- vroom(here("output/results/predictions.csv"))
+group_predictions <- vroom(here("output/results/groupwise_predictions.csv"))
+
+# learning curves
+learning_curves <- vroom(here("output/results/learning_curves_n.csv"))
+
+# decision stump boundaries
+stump_splits <- vroom(here("output/results/decision_stump_splits.csv"))
+
+# SHAP values
+shap_values <- vroom(here("output/results/random_forest_explanation_examples.csv"))
+orchid_predictions <- vroom(here("output/results/orchid_test_predictions.csv"))
+orchid_list <- vroom(here("output/orchid-rl_species-list.csv"))
+
+# decision tree example
+tree <- read_rds(here("output/results/decision_tree_example.rds"))
+
+# 1. data cleaning stats ----
+species_coverage <-
+  processing_stats %>%
+  mutate(unlabelled=species - labelled) %>%
+  select(group, target, filter, clean, labelled, unlabelled) %>%
+  pivot_longer(cols=c(labelled, unlabelled), names_to="status", values_to="n") %>%
+  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
+                         TRUE ~ group),
+         status=recode(status, !!! status_names)) %>%
+  mutate(group=factor(group, levels=group_names, ordered=TRUE),
+         status=factor(status, levels=c("not evaluated or DD", "evaluated, non-DD"), ordered=TRUE)) %>%
+  complete(filter, 
+           nesting(group, clean, status)) %>%
+  group_by(group, clean, status) %>%
+  fill(n) %>%
+  ggplot(mapping=aes(x=clean, y=n, fill=status)) +
+  geom_col() +
+  scale_y_continuous(labels=label_comma()) +
+  scale_fill_manual(values=status_colours, name="") +
+  labs(x="Coordinate cleaning step", y="Species") +
+  facet_grid(group ~ filter, scales="free_y") +
+  theme_grid() +
+  theme(
+    panel.grid.major.x=element_blank(),
+    panel.grid.major.y=element_line(linetype=3, colour="grey80")
+  )
+
+ggsave(here("figures/figure-1_cleaning-species-coverage.svg"),
+       species_coverage,
+       height=5, width=7)
+
+# 2. performance grid ----
 performance_grid <-
   performance %>%
-  filter(downsample == "no" | group == "Legumes" & model == "Random forest" & downsample == "yes",
-         .metric == "TSS") %>%
-  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
-                         TRUE ~ group)) %>%
-  mutate(group=factor(group, levels=group_names, ordered=TRUE),
+  filter(downsample == "no",
+         target == "IUCN RL",
+         .metric == "TSS",
+         model != "Logistic regression",
+         group != "All") %>%
+  mutate(group=factor(group, levels=group_names_small, ordered=TRUE),
          model=factor(model, levels=model_names, ordered=TRUE)) %>%
   complete(filter, 
            nesting(group, clean, model)) %>%
@@ -43,115 +164,379 @@ performance_grid <-
                    limits=c("4", "3", "2", "1")) +
   viridis::scale_fill_viridis(name="True skill statistic", 
                               direction=1, limits=c(0, 1)) +
-  labs(x="", y="") +
+  labs(x="Geographic cleaning step", y="Record filtering step") +
   guides(fill=guide_colorbar(title.position="top", title.hjust=0, 
                              barheight=1, barwidth=25)) +
-  theme_bw() +
-  theme(
-    panel.border=element_rect(colour="grey60"),
-    strip.background=element_rect(colour="grey60"),
-    legend.position="bottom",
-    panel.grid=element_blank())
+  theme_grid() +
+  theme(panel.grid.major.x=element_blank())
 
-ggsave(paste(output_dir, "figure-1_performance-grid.svg", sep="/"), 
-       performance_grid, height=10, width=7)
+ggsave(paste(output_dir, "figure-2_performance-grid.svg", sep="/"), 
+       performance_grid, height=7, width=7)
 
-# S1. distribution map ----
-wgsrpd3 <- st_read(here("data/wgsrpd/level3/level3.shp"))
+# 3. sample choice exploration ----
 
-distribution_files <- list.files(here("output/"),
-                                 pattern="_distributions.csv",
-                                 full.names=TRUE)
+legume_performance <-
+  performance %>%
+  filter(group == "Legumes",
+         downsample == "yes",
+         !model %in% c("Logistic regression", "IUCN threshold"),
+         filter == 1,
+         clean == "A",
+         .metric == "TSS") %>%
+  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
+                         TRUE ~ group)) %>%
+  mutate(group=factor(group, levels=group_names, ordered=TRUE),
+         model=factor(model, levels=model_names, ordered=TRUE)) %>%
+  mutate(.n=185)
+  
+learning_comparison <-
+  learning_curves %>%
+  filter(group == "Legumes",
+         downsample == "yes",
+         model != "Logistic regression",
+         filter == 1,
+         clean == "A",
+         .metric == "TSS") %>%
+  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
+                         TRUE ~ group)) %>%
+  mutate(group=factor(group, levels=group_names, ordered=TRUE),
+         model=factor(model, levels=model_names, ordered=TRUE)) %>%
+  ggplot(mapping=aes(x=.n, y=.estimate, colour=target)) +
+  geom_line(mapping=aes(group=paste0(id, id2, group)), alpha=0.1) +
+  stat_summary(geom="line", fun=median, size=1) +
+  scale_y_continuous(limits=c(0, 1)) +
+  scale_x_continuous(breaks=seq(from=50, to=175, by=25)) +
+  scale_colour_manual(values=target_colours, name="") +
+  labs(x="Number of training examples", y="True skill statistic") +
+  facet_grid(~ model) +
+  theme_grid()
 
-distributions <- vroom(distribution_files,
-                       id="filename")
+downsample_srli_comparison <-
+  performance %>%
+  filter(group == "Legumes",
+         target == "SRLI",
+         filter == 1,
+         clean == "A",
+         model != "Logistic regression") %>%
+  mutate(model=factor(model, levels=model_names, ordered=TRUE),
+         downsample=recode(downsample, !!! downsample_names)) %>%
+  ggplot(mapping=aes(x=model, y=.value, ymin=.lower, ymax=.upper)) +
+  geom_pointrange(mapping=aes(colour=downsample),
+                  position=position_dodge(width=0.5)) +
+  scale_y_continuous(limits=c(0, 1)) +
+  scale_colour_manual(values=downsample_colours, name="") +
+  coord_flip() +
+  facet_grid(~.metric) +
+  labs(y="", x="") +
+  theme_grid()
 
-species_lists <- list.files(here("output/"),
-                            pattern="_species-list.csv",
-                            full.names=TRUE)
-
-species_lists <- vroom(species_lists,
-                       id="filename")
-
-species_lists <-
-  species_lists %>%
-  mutate(target=str_extract(filename, "(?<=-)[a-z]+(?=_)"),
-         group=str_extract(filename, "(?<=output/)[a-z]+")) %>%
-  select(-filename)
-
-distribution_counts <-
-  distributions %>%
-  mutate(group=str_extract(filename, "(?<=output/)[a-z]+")) %>%
-  select(-filename) %>%
-  left_join(
-    species_lists %>% select(group, target, id, name, category),
-    by=c("group", "id", "name")
+group_prediction_comparison <-
+  group_predictions %>%
+  mutate(type="combined") %>%
+  bind_rows(
+    predicted_threat %>% mutate(type="individual")
   ) %>%
-  group_by(group, target, distribution) %>%
-  summarise(
-    species=n(),
-    assessed=sum(!is.na(category)),
-    .groups="drop"
+  filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
+         model != "Logistic regression",
+         group != "All",
+         filter == 1,
+         clean == "A",
+         target == "IUCN RL",
+         coverage == "unassessed") %>%
+  slice_max(.width) %>%
+  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
+                         TRUE ~ group)) %>%
+  mutate(group=factor(group, levels=rev(group_names), ordered=TRUE),
+         model=factor(model, levels=model_names, ordered=TRUE)) %>%
+  ggplot(mapping=aes(x=group, y=.value, ymin=.lower, ymax=.upper)) +
+  geom_pointrange(mapping=aes(colour=type),
+                  position=position_dodge(width=0.5)) +
+  scale_y_continuous(limits=c(0,1), labels=label_percent()) +
+  scale_colour_manual(values=pooling_colours, name="") +
+  coord_flip() +
+  labs(x="", y="Predicted proportion threatened") +
+  facet_grid(~ model) +
+  theme_grid()
+
+sample_choice_plot <-
+  (downsample_srli_comparison / learning_comparison / group_prediction_comparison) +
+  plot_annotation(tag_levels="A") &
+  theme(legend.position="right",
+        panel.spacing.x=unit(1, "lines")) 
+
+ggsave(paste0(output_dir, "/figure-3_sample-choice_comparison.svg"),
+       sample_choice_plot,
+       height=5, width=10)
+
+# 4. explanations comparison ----
+# sample things the orchid model got wrong
+wrong_orchids <- 
+  orchid_predictions %>%
+  filter(model == "Random forest") %>%
+  group_by(wcvp_id) %>%
+  summarise(accuracy=mean(obs == .pred_class),
+            .groups="drop") %>%
+  filter(accuracy == 0)
+
+set.seed(123)
+examples <- sample(wrong_orchids$wcvp_id, 5)
+
+# SHAP analysis - global, importance
+shap_importance <-
+  shap_values %>%
+  group_by(feature, id, id2) %>%
+  summarise(importance=mean(abs(shap)),
+            .groups="drop") %>%
+  mutate(feature=recode(feature, !!! feature_names)) %>%
+  mutate(feature=reorder(feature, importance)) %>%
+  ggplot(mapping=aes(x=importance, y=feature)) +
+  geom_boxplot() +
+  labs(x="Mean |SHAP|", y="") +
+  theme_grid()
+  
+
+# SHAP analysis - global, partial dependence
+scale_values <- function(values, log=FALSE) {
+  if (log) {
+    values <- log10(values + 1)
+  }
+  (values - min(values, na.rm=TRUE)) / (max(values, na.rm=TRUE) - min(values, na.rm=TRUE))
+}
+
+partial_dependence <-
+  shap_values %>%
+  group_by(wcvp_id, feature) %>%
+  summarise(shap=mean(shap),
+            prob=mean(prob),
+            mean_prob=mean(mean_prob),
+            value=first(value),
+            .groups="drop") %>%
+  mutate(feature=reorder(feature, abs(shap), FUN=mean)) %>%
+  nest_by(feature) %>%
+  mutate(scaled_value=list(scale_values(data$value, log=(feature %in% c("eoo", "hpd"))))) %>%
+  unnest(cols=c(data, scaled_value)) %>%
+  mutate(feature=recode(feature, !!! feature_names)) %>%
+  ungroup()
+
+shap_dependence <-
+  partial_dependence %>%
+  ggplot(mapping=aes(y=shap, x=feature, colour=scaled_value)) +
+  geom_sina(alpha=0.25) +
+  coord_flip() +
+  scale_colour_gradient(low="#FFCC33", high="#6600CC", 
+                        breaks=c(0,1), labels=c("Low","High"),
+                        name="Feature value") +
+  scale_fill_gradient(low="#FFCC33", high="#6600CC", 
+                      breaks=c(0,1), labels=c("Low","High"),
+                      name="Feature value") +
+  guides(colour=guide_colorbar(title.position="top", 
+                               title.hjust=0, 
+                               barheight=0.5,
+                               barwidth=7)) +
+  labs(y="SHAP value", x="") +
+  theme_bw() +
+  theme(legend.position="bottom")
+
+# SHAP analysis - local, force plot example
+format_value <- function(value, units, trim=TRUE) {
+  value <- format(value, digits=1, big.mark=",", scientific=FALSE)
+  value <- str_trim(value)
+  
+  glue(
+    "{value}",
+    "{units}",
+    .sep=" ", .na=""
   )
+}
 
-breaks <- c(1, 10, 50, 100, 500, 1000, 2000, 5000)
-myrcia_map <- 
-  distribution_counts %>%
-  filter(group == "myrcia") %>%
-  plot_map(wgsrpd3, species, breaks=breaks, colour_label="Number of species")
+explanation_example <-
+  partial_dependence %>%
+  filter(wcvp_id == "660763-1") %>%
+  left_join(
+    orchid_list %>% select(id, name, category),
+    by=c("wcvp_id"="id")
+  ) %>%
+  mutate(units=recode(feature, !!! units)) %>%
+  mutate(value_label=format_value(value, units)) %>%
+  arrange(feature) %>%
+  mutate(end=cumsum(shap)) %>%
+  mutate(end=end + mean_prob) %>%
+  mutate(start=lag(end)) %>%
+  replace_na(list(start=first(.$mean_prob))) %>%
+  mutate(middle=start + shap/2)
 
-orchid_map <- 
-  distribution_counts %>%
-  filter(group == "orchid") %>%
-  plot_map(wgsrpd3, species, breaks=breaks, colour_label="Number of species")
+label_data <-
+  explanation_example %>%
+  head(1) %>%
+  select(feature, prob, mean_prob) %>%
+  pivot_longer(cols=c(prob, mean_prob),
+               names_to="label", values_to="middle") %>%
+  mutate(label=recode(label, prob="Predicted\nprobability", 
+                      mean_prob="Average\nprobability"))
 
-legume_map <- 
-  distribution_counts %>%
-  filter(group == "legume", target == "rl") %>%
-  plot_map(wgsrpd3, species, breaks=breaks, colour_label="Number of species")
+shap_force <- 
+  ggplot(data=explanation_example, mapping=aes(y=feature,
+                     yend=lead(feature),
+                     x=middle)) +
+  geom_vline(data=label_data, mapping=aes(xintercept=middle),
+             colour="grey50", linetype=2) +
+  geom_text(data=label_data, mapping=aes(label=label),
+            colour="grey50", size=2, hjust=1.1) +
+  geom_segment(mapping=aes(x=end, xend=end),
+               linetype=4) +
+  geom_tile(mapping=aes(width=shap, fill=shap > 0),
+            height=0.5) +
+  geom_text(mapping=aes(label=value_label),
+            size=2, x=0, hjust=0) +
+  scale_fill_manual(values=c(`FALSE`="#1E88E5", 
+                             `TRUE`="#ff0d57")) +
+    scale_y_discrete(drop=FALSE,
+                     limits=levels(explanation_example$feature)) +
+  scale_x_continuous(limits=c(0,1)) +
+  guides(fill=FALSE) +
+  theme_bw() +
+  labs(y="", x="Probability threatened")
 
-distribution_map <-
-  (myrcia_map / orchid_map / legume_map) +
-  plot_layout(guides="collect") +
-  plot_annotation(tag_level="A") &
-  theme(legend.position="bottom")
+# join shap plots together in one strip
+shap_plots <- 
+  shap_importance | shap_dependence | shap_force
 
-ggsave(paste(output_dir, "figure-s1_distribution-map.svg", sep="/"),
-       distribution_map, height=10, width=8)
+shap_plots[[2]] <-
+  shap_plots[[2]] +
+  theme(axis.text.y=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks.y=element_blank())
 
-# s2. assessments map ----
-breaks <- c(1, 5, 10, 25, 50, 100, 200, 400)
-myrcia_map <- 
-  distribution_counts %>%
-  filter(group == "myrcia") %>%
-  plot_map(wgsrpd3, assessed, breaks=breaks, 
-           colour_label="Number of assessed species")
+shap_plots[[3]] <-
+  shap_plots[[3]] +
+  theme(axis.text.y=element_blank(),
+        axis.title.y=element_blank(),
+        axis.ticks.y=element_blank())
 
-orchid_map <- 
-  distribution_counts %>%
-  filter(group == "orchid") %>%
-  plot_map(wgsrpd3, assessed, breaks=breaks, 
-           colour_label="Number of assessed species")
+# decision stump
+stump_summary <-
+  stump_splits %>%
+  filter(group == "Orchids",
+         filter == 1, clean == "A",
+         downsample == "no") %>%
+  summarise(.value=mean(split),
+            .lower=quantile(split, 0.025),
+            .upper=quantile(split, 0.975))
 
-legume_all_map <- 
-  distribution_counts %>%
-  filter(group == "legume", target == "rl") %>%
-  plot_map(wgsrpd3, assessed, breaks=breaks, 
-           colour_label="Number of assessed species")
+stump_plot <-
+  shap_values %>%
+  filter(feature == "eoo") %>%
+  mutate(value=log10(value + 1)) %>%
+  distinct(wcvp_id, value) %>%
+  left_join(
+    orchid_predictions %>% 
+      distinct(wcvp_id, obs),
+    by=c("wcvp_id")
+  ) %>%
+  ggplot() +
+  geom_density_ridges(mapping=aes(x=value, y=obs),
+                      stat="binline", bins=20, scale=0.95,
+                      draw_baseline=FALSE) +
+  geom_rect(data=stump_summary,
+            mapping=aes(xmin=log10(.lower+1), xmax=log10(.upper+1)),
+            fill="black", ymin=-Inf, ymax=Inf, alpha=0.2) +
+  geom_vline(xintercept=log10(stump_summary$.value + 1), linetype=2) +
+  geom_vline(xintercept=log10(20000 + 1), linetype=2, colour="steelblue") +
+  annotate("text", x=log10(stump_summary$.lower + 1) * 0.5, y=2.9, 
+           label="Predicted\nnot threatened", size=3, vjust=1, hjust=0.5) +
+  annotate("text", x=log10(stump_summary$.upper + 1) * 1.5, y=2.9, 
+           label="Predicted\nthreatened", size=3, vjust=1, hjust=0.5) +
+  labs(x=expression("EOO / "~km^2), y="") +
+  theme_bw()
 
-legume_srli_map <- 
-  distribution_counts %>%
-  filter(group == "legume", target == "srli") %>%
-  plot_map(wgsrpd3, assessed, breaks=breaks, 
-           colour_label="Number of assessed species")
+# decision tree
 
-assessments_map <-
-  (myrcia_map / orchid_map / legume_all_map / legume_srli_map) +
-  plot_layout(guides="collect") +
-  plot_annotation(tag_level="A") &
-  theme(legend.position="bottom")
+# plot the tree to get the data to do it in ggplot
+plot_data <- rpart.plot::rpart.plot(tree, type=0, roundint=FALSE)
+  
+branches_x <- plot_data$branch.x
+branches_y <- plot_data$branch.y
+  
+segments <- 
+  bind_rows(
+    tibble(
+      x=branches_x[1,],
+      xend=branches_x[2,],
+      y=branches_y[1,],
+      yend=branches_y[2,] 
+    )
+  ) %>%
+  bind_rows(
+    tibble(
+      x=branches_x[3,],
+      xend=branches_x[2,],
+      y=branches_y[3,],
+      yend=branches_y[2,]
+    )
+  )
+  
+lab_values <- rpart:::labels.rpart(tree, collapse=FALSE)[,1]
+  
+splits <-
+  tree$frame %>%
+  as_tibble() %>%
+  select(var, n, yval) %>%
+  mutate(val=lab_values,
+         x=plot_data$x,
+         y=plot_data$y) 
+  
+labels <-
+  splits %>%
+  mutate(sign=str_extract(lab_values, "[<=>]+"), 
+         val=str_remove_all(lab_values, "[<=> ]+")) %>%
+  filter(var != "<leaf>") %>%
+  mutate(val=as.numeric(val)) %>%
+  mutate(var=recode(var, !!! feature_names)) %>%
+  mutate(units=recode(var, !!! units)) %>%
+  rowwise() %>%
+  mutate(label=glue("{var} {sign} {format(val, digits=2, big.mark=',')} {units}")) %>%
+  ungroup()
+  
+leaves <-
+  splits %>%
+  mutate(label=plot_data$labs) %>%
+  filter(var == "<leaf>") %>%
+  mutate(value=str_extract(label, "(?<=\n)[\\d\\.]+"),
+         value=as.numeric(value),
+         label=str_replace(label, glue("{value}"), glue("{1 - value}")),
+         value=1 - value)
+  
+tags <-
+  labels %>%
+  slice_max(y) %>%
+  mutate(label="yes",
+         x=x*0.5) %>%
+  bind_rows(
+    labels %>%
+      slice_max(y) %>%
+      mutate(label="no",
+             x=x*1.5)
+  )
+    
+decision_tree <-
+  ggplot(mapping=aes(x=x, y=y)) +
+  geom_segment(data=segments, 
+               mapping=aes(xend=xend, yend=yend),
+               colour="grey80") +
+  geom_label(data=labels, mapping=aes(label=label),
+            size=2) +
+    geom_text(data=tags, mapping=aes(label=label), size=2,
+              vjust=1.2) +
+    geom_label(data=leaves, mapping=aes(label=label, fill=value),
+               size=2, vjust=0) +
+    scale_fill_distiller(palette="RdYlGn") +
+    scale_x_continuous(expand=expansion(mult=0.1)) +
+    guides(fill=FALSE) +
+    theme_void()
 
-ggsave(paste(output_dir, "figure-s2_assessments-map.svg", sep="/"),
-       assessments_map, height=12, width=8)
+explanation_plots <- 
+  (stump_plot + decision_tree) / shap_plots +
+  plot_annotation(tag_levels="A")
 
-
+ggsave(here("figures/figure-4_explanations.svg"),
+       explanation_plots, height=7, width=11)
