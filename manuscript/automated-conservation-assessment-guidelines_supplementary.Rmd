@@ -1,41 +1,59 @@
 ---
-  title: "Supplementary Materials"
+title: "Supplementary Materials"
 author: "Barnaby Walker"
-date: "18/02/2021"
-output: word_document
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output: 
+  bookdown::word_document2: default
+bibliography: data_cleaning.bib
+csl: methods-in-ecology-and-evolution.csl
 ---
   
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
+
+library(here)
+library(dplyr)
+library(vroom)
 ```
 
+# Supplementary Methods
+
+## Automated name matching
+When matching IUCN Red List assessment names to WCVP, we manually resolved unmatched names to ensure we had as many assessed species as possible. This manual matching was infeasible when matching occurrence record names from GBIF, due to the number of names. Therefore, we used a more automated process.
+
+We first submitted taxon names with their author strings to KNMS. We then re-submitted any unmatched names, this time without the author strings. The KNMS can return multiple matches for a single name, which we resolved in both these steps by taking only the accepted names from multiple matches. If no accepted name was returned, we took the homotypic synonyms. If no accepted name or homotypic synonym was returned or multiple matches remained after filtering for these, we returned no match for that name. We then removed all occurrence records with unmatched names from our data sets.
+
+## Software
+
+We performed our study using the R statistical computing language [@RCoreTeam2020]. We used the tidyverse family of packages [@Wickham2019] for data analysis and the tidymodels packages [@Kuhn2020] to train and apply our automated assessment methods. We use the sf package [@Pebesma2018] for geographic analysis, the raster [@Hijmans2020] and exactextractr [@DanielBaston2020] packages to handle raster data, CoordinateCleaner [@Zizka2019] to implement coordinate cleaning steps B and C, rCAT [@Moat2020] to calculate EOO, and the implementation of KernelSHAP from the shapper package [@Maksymiuk2020] to calculate SHAP values. We matched names through KNMS, queried taxonomic information in WCVP, and retrieved species' native ranges from Plants of the World Online (POWO) with the kewr package [@Walker2021].
+
 ```{r tss-comparison, out.width="100%", fig.cap="TSS comparison"}
-knitr::include_graphics("../figures/figure-s1_tss-comparison.svg")
+knitr::include_graphics("../figures/figure-s1_tss-comparison.png")
 ```
 
 ```{r cleaning-comparison, out.width="100%", fig.cap="cleaning comparison"}
-knitr::include_graphics("../figures/figure-s2_cleaning-comparison.svg")
+knitr::include_graphics("../figures/figure-s2_cleaning-comparison.png")
 ```
 
 ```{r downsampling-comparison, out.width="100%", fig.cap="downsampling comparison"}
-knitr::include_graphics("../figures/figure-s3_downsampling-comparison.svg")
+knitr::include_graphics("../figures/figure-s3_downsampling-comparison.png")
 ```
 
 ```{r groupwise-comparison, out.width="100%", fig.cap="groupwise performance comparison"}
-knitr::include_graphics("../figures/figure-s4_group-comparison.svg")
+knitr::include_graphics("../figures/figure-s4_group-comparison.png")
 ```
 
 ```{r detailed-performance-comparison, out.width="100%", fig.cap="detailed performance comparison"}
-knitr::include_graphics("../figures/figure-s5_detailed-performance-comparison.svg")
+knitr::include_graphics("../figures/figure-s5_detailed-performance-comparison.png")
 ```
 
 ```{r accuracy-model-comparison, out.width="100%", fig.cap="accuracy logistic regressions"}
-knitr::include_graphics("../figures/figure-s6_accuracy-model-comparison.svg")
+knitr::include_graphics("../figures/figure-s6_accuracy-model-comparison.png")
 ```
 
 
 ```{r permutation-importance, out.width="100%", fig.cap="accuracy logistic regressions"}
-knitr::include_graphics("../figures/figure-s7_rf-permutation-importance.svg")
+knitr::include_graphics("../figures/figure-s7_rf-permutation-importance.png")
 ```
 
 ```{r accuracy-model-table, warning=FALSE, message=FALSE}
@@ -48,3 +66,5 @@ d %>%
   knitr::kable(digits=2,
                caption="Table S1. Model coefficients for logistic regression models relating the accuracy of the AA methods to the number of occurrence records for a species. The models were fit with the formula $log(\\hat{p}_i / 1 - \\hat{p}_i) = \\alpha + \\beta log_{10}(occurrences)$ and all coefficients are shown in their exponentiated form. Therefore, the intercept terms can be interpreted as the odds that a species with one occurrence record is predicted correctly, while the slope term can be interpreted as the multiplicative increase in the odds that a species is predicted correctly with each increase in the order of magnitude of the number of occurrences.", escape=FALSE)
 ```
+
+# References

@@ -78,8 +78,6 @@ For Myrcia, we retrieved occurrence records from the database prepared for a mon
 
 To address our study's first question, we passed each set of occurrences through automated cleaning steps. These cleaning steps took two different approaches: filtering records lacking voucher specimens or representing duplicates and removing records based on their coordinates.
 
-*Occurrence records in digital repositories can come from different sources, such as digitised specimens from natural history collections, photographs from citizen science platforms like iNaturalist, or field observations not supported by specimens or photos. Occurrence record sources vary in quality, with records based on preserved specimens, which allow verification and correction, often considered most reliable. Similarly, digital repositories may hold multiple entries for the same occurrence. While repeated entries may not significantly impact estimates of range size, such as the extent of occurrence, duplications could lead to biased estimates for other predictors of risk, such as mean human footprint.
-
 ```{r cleaning-steps}
 cleaning_steps <-
   tribble(~`Type`, ~`Step`, ~`Description`,
@@ -98,7 +96,7 @@ cleaning_steps %>%
   )
 ```
 
-Therefore, we applied filters to test whether removing occurrences based on anything other than preserved specimens or removing duplicated occurrences affected predictions of extinction risk. The combination of these filters led to four different filter levels (Table \@ref(tab:cleaning-steps)).
+We applied filters to test whether removing occurrences based on anything other than preserved specimens or removing duplicated occurrences affected predictions of extinction risk. The combination of these filters led to four different filter levels (Table \@ref(tab:cleaning-steps)).
 
 We chose our coordinate cleaning steps based on approaches taken by other studies of automated assessment (AA) methods, including the previously published Rapid Least Concern app [@Bachman2020]. We applied each step on top of the previous one to give increasing levels of coordinate cleaning (Table \@ref(tab:cleaning-steps)).
 
@@ -118,7 +116,7 @@ We made predictions with three different AA to explore the trade-offs between pr
 
 4. A random forest model using the same set of predictors as the decision tree . This method is the hardest to interpret and use but has shown good performance in previous studies predicting extinction risk [@Bland2015;@Darrah2017;@Lughadha2019;@Pelletier2018].
 
-While it is possible to predict individual IUCN Red List categories, we chose to predict if a species is in the set of "threatened" IUCN categories. The high imbalance between the number of species in each category on the IUCN Red List could result in AA methods having a misleadingly high overall accuracy while performing poorly on the categories with fewer species. This problem could be especially severe for our smallest dataset, Myrcia. Following the IUCN definition, we grouped the Critically Endangered, Endangered, and Vulnerable categories into our threatened class [@IUCN2012]. We formed our non-threatened class from the Near Threatened and Least Concern categories. We treated Data Deficient species as unassessed, generating predictions for them from our AA methods, and excluded Extinct and Extinct in the Wild species from our study.
+We chose to predict if a species is threatened, to reduce the imbalance between classes. Following the IUCN definition, we grouped the Critically Endangered, Endangered, and Vulnerable categories into our threatened class [@IUCN2012]. We formed our non-threatened class from the Near Threatened and Least Concern categories. We treated Data Deficient species as unassessed, generating predictions for them from our AA methods, and excluded Extinct and Extinct in the Wild species from our study.
 
 ### Predictor preparation
 All three methods used EOO as a predictor, calculated as the area in km^2 enclosed by the minimum convex polygon around each species' occurrence records [@Moat2020]. For the random forest model, we also used the latitude of range centroid and six environmental and threat-based predictors (Table \@ref(tab:predictor-table)).
@@ -158,13 +156,19 @@ We assessed the effect of sample balance on our two machine-learning-based AA me
 
 ## Method interpretation
 
-Following Zizka et al. [-@Zizka2020], we used logistic regression models to estimate the probability a prediction was correct based on the number of occurrence records available. These estimated probabilities can give additional context to assess the quality of a prediction for an unassessed species. These models comprised an intercept and single slope coefficient relating the base-10 logarithm of the number of occurrence records to the binary response of correct/not correct. For our decision stump and random forest AA methods, we fit these models to the validation set predictions for each evaluation fold of the cross-validation schemes. For the IUCN-threshold method, we fit the models to predictions for all assessed species.
+We compared the interpretibility of our machine-learning-based methods by inspecting the classifiction boundary of our decision stump model and a flow chart of splits from our decision tree model. We calculated SHapely Additive exPlanations (SHAPs) to interpret our random forest model. These values estimate each predictor's contribution to a prediction [@Lundberg2017] and can be aggregated to provide the importance and partial dependence of each predictor, as well as individual explanations. We limited this comparison to models trained on the orchid dataset with minimally cleaned data (filtering step 1 and coordinate cleaning step A) because orchids have proven challenging to predict accurately than other plant groups [@NicLughadha2019].
 
-We calculated SHapely Additive exPlanations (SHAPs), which estimate each predictor's contribution to individual predictions, to interpret predictions from the random forest model predictions [@Lundberg2017]. This calculation was computationally expensive, so we only calculated SHAPs for predictions for the orchid dataset made from minimally cleaned data (filtering step 1 and coordinate cleaning step A). We chose to examine our orchid predictions using SHAP because they have proven challenging to predict accurately than other plant groups [@NicLughadha2019].
+For additional context, we followed Zizka et al. [-@Zizka2020] in fitting logistic regression models to predictions for assessed species from all AA methods, of the form:
+
+\begin{equation}
+log(\frac{\hat{p}_i}{1 - \hat{p_i}}) = \alpha + \beta log_{10}(N)
+\end{equation}
+
+where $\hat{p_i}$ is the estimated probability a prediction is correct and $N$ is the number of occurrence records for a species.
 
 ## Software
 
-*We performed our study using the R statistical computing language [@RCoreTeam2020]. A full list of packages is provided in the Supplementary Methods.We used the tidyverse family of packages [@Wickham2019] for data analysis and the tidymodels packages [@Kuhn2020] to train and apply our automated assessment methods. We use the sf package [@Pebesma2018] for geographic analysis, the raster [@Hijmans2020] and exactextractr [@DanielBaston2020] packages to handle raster data, CoordinateCleaner [@Zizka2019] to implement coordinate cleaning steps B and C, rCAT [@Moat2020] to calculate EOO, and the implementation of KernelSHAP from the shapper package [@Maksymiuk2020] to calculate SHAP values. We matched names through KNMS, queried taxonomic information in WCVP, and retrieved species' native ranges from Plants of the World Online (POWO) with the kewr package [@Walker2021].
+We performed our study using the R statistical computing language [@RCoreTeam2020]. A full list of packages is provided in the Supplementary Methods.
 
 # Results
 
@@ -172,7 +176,7 @@ We calculated SHapely Additive exPlanations (SHAPs), which estimate each predict
 
 We used the true skill statistic (TSS) as a balanced measure of performance for all method and cleaning comparisons. All methods performed relatively well across every filtering and cleaning step, with TSS remaining above 0.25 for all methods. Furthermore, the variation in TSS across CV folds suggests no clear change in performance with occurrence data cleaning (Fig. S1).
 
-Despite this, there are some trends apparent in the methods' average performance (Fig. \@ref(fig:performance-grid)). The most apparent performance improvement is for the IUCN threshold method from coordinate-cleaning step A to D for all datasets except Orchids. The average TSS increased from 0.43 to 0.60 for *Myrcia*, 0.41 to 0.58 for SRLI legumes, and 0.53 to 0.61 for all legumes. For all groups analysed, filtering steps 2, 3, and 4 had a negligible impact on method performance. Therefore, the results discussed throughout relate to coordinate cleaning steps with filtering step 1 (no occurrence record filtering), unless otherwise stated.
+Despite this, there are some trends apparent in the methods' average performance (Fig. \@ref(fig:performance-grid)). The largest performance improvement was for the IUCN threshold method from coordinate-cleaning step A to D for all datasets except Orchids. The average TSS increased from 0.43 to 0.60 for *Myrcia*, 0.41 to 0.58 for SRLI legumes, and 0.53 to 0.61 for all legumes. For all groups analysed, filtering steps 2, 3, and 4 had a negligible impact on method performance. Therefore, the results discussed throughout relate to coordinate cleaning steps with filtering step 1 (no occurrence record filtering), unless otherwise stated.
 
 Performance of all methods was slightly worse on the *Myrcia* monographic database than GBIF data with full coordinate cleaning. The random forest model's performance was worse on data from the monographic database (TSS = 0.59) than on minimally cleaned GBIF data (0.66).
 
@@ -185,10 +189,6 @@ The differences between the three datasets were apparent after downloading and n
 Almost all *Myrcia* records were based on preserved specimens (93.9 %), while this proportion was much smaller for the orchid (14.3 %) and legume (15.2 %) datasets. Therefore, filtering step 2 (keeping preserved specimens only) removed most orchid and legume occurrence records but a small proportion of records from the *Myrcia* dataset. Filtering step 3 (removing records at duplicated coordinates) also profoundly affected each dataset's number of occurrences. This step reduced the *Myrcia* dataset to 31,298 unique occurrences (64.9 %), the legume dataset to 8,415,070 unique occurrences (57.7 %), and the orchid dataset to 1,912,129 unique occurrences (44.7 %).
 
 The geographic cleaning steps removed fewer records than the filtering steps. Of the geographic cleaning steps, step C removed the most records from the orchid dataset (7.2 %), while step D removed the most records from the *Myrcia* (7.6 %) and legume datasets (16.4 %). Applying all filtering and geographic cleaning steps removed 42.9 % of *Myrcia* occurrences, 91.1 % of legume occurrences, and 91.2 % of orchid occurrences. Despite the large proportion of records removed from the *Myrcia* dataset, it still contained over twice the 10,823 records in the monographic database of *Myrcia* specimens.
-
-[Despite comprising millions of records, the orchid dataset had the smallest median number of records per species (6) and the smallest median EOO (8,213 km$^2$). Species in the *Myrcia* dataset had more occurrence records (median records: 11.5) and larger ranges (median EOO: 46,635 km$^2$), while species in the legume dataset were the best recorded (median records: 31) and widest ranged (median range: 165,229 km$^2$).]
-
-[The geographic cleaning steps exacerbated these differences (Fig. S2). Cleaning step D reduced median EOO most for all groups while filtering step C caused the largest drop in the median number of records. After applying all filtering and cleaning steps, the median number of occurrence records was 7 for *Myrcia* species, 16 for legume species, and 4 for orchid species. The corresponding median EOO values were 11,078 km2 for *Myrcia* species, 68,871 km2 for legume species, and 2,930 km2 for orchid species. Species in the monographic database of *Myrcia* occurrences had a median of 5 records and a median EOO of 4,485 km2 — both lower than the *Myrcia* dataset downloaded from GBIF after automatic cleaning.]
 
 ###  Species coverage
 
@@ -230,7 +230,7 @@ Training the machine-learning-based models on all groups combined caused little 
 
 All AA methods investigated achieved high predictive accuracy, regardless of the amount of cleaning applied to the occurrence records (Fig. S5A). The highest accuracies were achieved on the *Myrcia* and legume datasets (78 % - 89 %), while accuracy on the orchid dataset was lower (61 % - 79 %). However, the methods were often better at correctly predicting non-threatened species than threatened ones. The IUCN threshold method had the most marked imbalance across all datasets (Fig. S5B-C). Of the three AA methods investigated, our random forest model consistently had the highest TSS (Fig. \@ref(fig:performance-grid)).
 
-[We used logistic regressions to estimate the probability of correctly classifying a species' extinction risk based on the number of occurrence records (Fig. S6; Table S1). With minimal data cleaning, the probability that a species with a single occurrence record was predicted correctly by the random forest model was 0.50 for legumes, 0.77 for *Myrcia*, and 0.74 for orchids.  The accuracy of all models increased with the number of specimens, with the steepest increase seen for the legume model (2.53, 95 % CI=[2.15, 3.04]). The dependence of method accuracy on the number of specimens was similar across AA methods for the orchid and legume datasets. For the *Myrcia* dataset, the IUCN threshold method had a lower probability of correctly classifying a species with a single occurrence record (0.50), and the odds increased more steeply with an increasing number of specimens (2.25, 95 % CI=[1.60, 3.11]).]
+Logistic regressions fit to predictions for assessed species demonstrated that the accuracy of all models had some dependence on the number of occurrence records (Fig. S6; Table S1). This dependence was highest for the random forest model trained on Legumes ($\beta = 2.53$, 95 % CI=[2.15, 3.04])
 
 We explored different methods to interpret our machine learning models' behaviour using the orchid dataset, which has proven more challenging to predict than other plant groups. We summarised the decision stump model by extracting the learned EOO threshold. The average threshold across all CV folds was 30,848 km$^2$, higher than the IUCN threshold of 20,000 km$^2$, but the 95 % confidence interval was wide and ranged from 2,833 km$^2$ to 73,290 km$^2$ (Fig. \@ref(fig:explanations)A).
 
