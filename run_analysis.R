@@ -89,7 +89,8 @@ occurrences %>%
   vroom_write(paste(output_dir, "myrcia_filter-1_clean-db.csv", sep="/"))
 
 # create cleaned files for all three groups together
-things <- expand.grid(filter=c(1,2,3,4), clean=c("A","B","C","D"))
+things <- expand.grid(filter=c(1,2,3,4), clean=c("A","B","C","D"),
+                      target=c("rl", "srli"))
 things <- split(things, 1:nrow(things))
 
 for (thing in things) {
@@ -139,16 +140,17 @@ for (set in datasets) {
 
 # create predictor sets for all three groups together
 for (thing in things) {
-  in_pattern <- glue("[a-z]+-gbif_filter-{thing$filter}_clean-{thing$clean}.csv")
-  out_name <- glue("all_filter-{thing$filter}_clean-{thing$clean}.csv")
+  in_pattern <- glue("[a-z]+_filter-{thing$filter}_clean-{thing$clean}_target-{thing$target}.csv")
+  out_name <- glue("all_filter-{thing$filter}_clean-{thing$clean}_target-{thing$target}.csv")
   occurrence_files <- list.files(here("output/predictors/"), 
-                                 pattern=in_pattern)
+                                 pattern=in_pattern,
+                                 full.names=TRUE)
   occurrences <- vroom(occurrence_files)
   vroom_write(occurrences, here("output/predictors/", out_name))
 }
 
 # add that to the datasets list
-datasets <- c(datasets, list(group="all", target="rl"))
+datasets[length(datasets)+1] <- list(list(group="all", target="rl"))
 
 # 7. Evaluate AA methods ----
 
@@ -193,7 +195,7 @@ output_name <- "orchid_filter-1_clean-A_target-rl_downsample-no_model-rf_shap-ex
 source(here("analysis/08_calculate_explanations.R"))
 
 # 9. summarise results for the manuscript ----
-output_dir <- here("output/study_results")
+output_dir <- here("output/results")
 dir.create(output_dir, showWarnings=FALSE)
 
 source(here("analysis/09_summarise_results.R"))

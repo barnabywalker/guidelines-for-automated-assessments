@@ -9,7 +9,15 @@ library(stringr)
 library(glue)
 library(vroom)
 library(shapper)
+library(furrr)
 library(tidymodels)
+library(randomForest)
+
+source(here("R/helper_functions.R"))
+
+# set up parallel processing ----
+all_cores <- parallel::detectCores()
+plan(multisession, workers = all_cores)
 
 # load data ----
 predictors <- vroom(predictor_file, id="filename")
@@ -24,7 +32,7 @@ shaps <-
   unnest(cols=c(.explanation))
 
 predictor_names <- 
-  pull_workflow_preprocessor(orchid_model$.fit[[1]]$.workflow[[1]]) %>%
+  pull_workflow_preprocessor(model$.fit[[1]]$.workflow[[1]]) %>%
   "$"(var_info) %>%
   filter(role == "predictor") %>%
   pull(variable)
@@ -32,10 +40,10 @@ predictor_names <-
 shaps <- 
   shaps %>%
   left_join(
-    orchid_predictors %>%
+    predictors %>%
       select(one_of(c("wcvp_id", predictor_names))) %>%
       pivot_longer(cols=c(-wcvp_id), names_to="feature"),
     by=c("wcvp_id", "feature")
   )
 
-vroom(shaps, paste(output_dir, output_name, sep="/"))  
+vroom_write(shaps, paste(output_dir, output_name, sep="/"))  
