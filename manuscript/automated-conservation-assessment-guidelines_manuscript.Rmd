@@ -1,7 +1,8 @@
 ---
 title: "Evidence-based guidelines for developing automated assessment methods"
-author: "Barnaby Walker"
-date: "`r format(Sys.time(), '%Y-%m-%d')`"
+author:
+  - Barnaby E. Walker^[Royal Botanic Gardens, Kew, UK, b.walker@kew.org], Tarciso C.C. Leão^[Royal Botanic Gardens, Kew, UK], Steven P. Bachman^[Royal Botanic Gardens, Kew, UK], Eve Lucas^[Royal Botanic Gardens, Kew, UK], Eimear Nic Lughadha^[Royal Botanic Gardens, Kew, UK]
+
 output: 
   bookdown::word_document2: default
 bibliography: data_cleaning.bib
@@ -20,7 +21,7 @@ library(tibble)
 
 # Abstract
 
-1. Assessing species' risk of extinction is a vital first step in setting conservation priorities. However, assessment endeavours like the IUCN Red List of Threatened Species still have significant gaps in their coverage of some taxonomic groups. Automated assessment (AA) methods are gaining popularity to rapidly fill these gaps, taking advantage of improvements in computing and digitally available information.  However, implicit choices made when developing and reporting automated assessment methods could prevent their successful adoption or, even worse, lead to poor allocation of conservation resources based on their predictions.
+1. Assessing species' risk of extinction is a vital first step in setting conservation priorities. However, assessment endeavours like the IUCN Red List of Threatened Species still have significant gaps in their coverage of some taxonomic groups. Automated assessment (AA) methods are gaining popularity to rapidly fill these gaps, taking advantage of improvements in computing and digitally available information.  However, implicit choices made when developing and reporting automated assessment methods could prevent their successful adoption or, even worse, their predictions could lead to poor allocation of conservation resources.
 
 2. We systematically explored how the choice of data cleaning, taxonomic group, training sample, and automation method affected predicted threat status. We used occurrence records from GBIF to generate assessments for three distinct taxonomic groups using four different automated assessment methods. We measured each method's performance and coverage after applying increasingly stringent cleaning to the input occurrence data. We used these results to build evidence-based guidelines for developing and reporting automated assessments.
 
@@ -28,9 +29,12 @@ library(tibble)
 
 4. We recommend using a machine learning-based method on minimally cleaned data to get the best compromise between performance and species coverage. However, our results demonstrate that the optimal data cleaning, training sample, and automation method depends on the focal group of species. Therefore, we recommend evaluating new AA methods across multiple groups and providing additional context with extinction risk predictions for users to make informed decisions.
 
+# Keywords
+IUCN Red List, machine learning, automation, biodiversity conservation
+
 # Introduction
 
-Identifying and documenting species are risk of extinction is critical in setting priorities and acting to protect biodiversity. The IUCN Red List of Threatened Species (IUCN Red List), the most widely accepted framework for assessing species’ global extinction risk, covers the entirety of some groups (e.g. birds) but only ~15%  of vascular plant species [@IUCN2021a]. Such gaps in extinction risk knowledge may lead to inefficient or inappropriate conservation resource allocation. Automated assessment (AA) methods can help close this assessment gap [@NicLughadha2020]. However, systematic exploration of methods is necessary for their effective application.
+Identifying and documenting species at risk of extinction is critical in setting priorities and acting to protect biodiversity. The IUCN Red List of Threatened Species (IUCN Red List), the most widely accepted framework for assessing species’ global extinction risk, covers the entirety of some groups (e.g. birds) but only ~15%  of vascular plant species [@IUCN2021a]. Such gaps in extinction risk knowledge may lead to inefficient or inappropriate conservation resource allocation. Automated assessment (AA) methods can help close this assessment gap [@NicLughadha2020]. However, systematic exploration of methods is necessary for their effective application.
 
 Growing recognition of the imperative to accelerate extinction risk assessments [@AlbaniRocchetti2020;@Bachman2019], advances in digitisation of natural history collections [@Paton2020], and widening availability of biodiversity data have stimulated development of AA methods. Early examples of method development focused on relatively small groups: Krupnick et al. [-@Krupnick2009] calibrated a rule-based method on 1,192 Hawaiian plants, Bland et al. [-@Bland2015] compared how different machine learning algorithms predicted the conservation status of 637 terrestrial mammals, and Darrah et al. [-@Darrah2017] explored the use of coarse-scale distribution data to predict conservation status for 6,439 bulbous monocots.
 
@@ -40,7 +44,7 @@ Given these high-stakes applications of AA methods, thorough consideration of th
 
 Specifically, four questions central to adoption and successful use of AA methods are:
 
-1. **How clean must occurrence data be?** Species occurrence records are thoroughly checked and geo-referenced during Red List assessments, requiring significant time investment. AA methods typically use automated cleaning on digitally available occurrence records to make this step more time-efficient. Well-documented issues with occurrence record data from online databases [@Meyer2016;@Paton2020;@Panter2020] raise questions about how much data cleaning is necessary to generate useful automated assessments. A requirement for a high level of cleaning could limit the benefits of automated assessments. 
+1. **How clean must occurrence data be?** Issue with the quality of occurrence record data from online databases are well known [@Meyer2016;@Paton2020;@Panter2020]. Species occurrence records are therefore thoroughly checked and geo-referenced during Red List assessments, requiring significant time investment. AA methods typically use automated cleaning on digitally available occurrence records to make this step more time-efficient, but overly-strict cleaning could limit benefits of automated assessments. 
 
 2. **How does the study group affect data cleaning and AA performance?**  Research interests and data availability often determine the group of species used to develop or apply an AA method. Studies reporting AA method performance typically apply them to taxonomically or geographically-defined groups [@Bland2015;@Stevart2019;@Zizka2020]. However, different factors influence the number and quality of occurrence records available for particular species. For example, temperate species tend to have more occurrence records available than tropical species. Therefore, AA method choice may interact with occurrence record cleaning to make different methods more appropriate for particular species groups.   
 
@@ -62,7 +66,7 @@ We chose three distinct species groups to evaluate the effects and performance o
 
 3. All species in the family Leguminosae (Fabaceae, legumes). Like orchids, the legumes are a large family (~22,000 spp), comprising a significant amount of worldwide angiosperm diversity. Unlike Myrtaceae, legumes are relatively well understood taxonomically and well-documented (e.g. Lewis et al. 2005). Legumes are a focal group of the Sampled Red List Index (SRLI), allowing us to compare the effect of training and evaluating AA methods on the sample of legumes used for the SRLI and all assessed legumes on the Red List.
 
-We obtained checklists of accepted species for all three groups from the World Checklist of Vascular Plants [@WCVP2019]. The taxonomy of *Myrcia* occasionally differs due to ongoing revisionary study (e.g., Lima-Santos et al., unpublished data).
+We obtained checklists of accepted species for all three groups from the World Checklist of Vascular Plants [@WCVP2021]. The taxonomy of *Myrcia* occasionally differs due to ongoing revisionary study (e.g., Lima-Santos et al., unpublished data).
 
 ### Species assessments
 
@@ -104,7 +108,7 @@ We passed all occurrence data sets, except the *Myrcia* monographic database occ
 
 ## Predicting threat status
 
-We generated extinction risk predictions species group based on each of the 16 cleaned occurrence data sets, as well as the monographic data set for *Myrcia*.
+We generated extinction risk predictions for species groups based on sets of predictors calculated from each of the 16 cleaned occurrence data sets, as well as the monographic data set for *Myrcia*. We chose to calculate these predictors (Table \@ref(tab:predictor-table)) for all species with at least one occurrence record in the cleaned occurrence data set. See Supplementary Methods for a full description of predictor preparation.
 
 We made predictions with four different AA to explore trade-offs between predictive performance, ease of use, and interpretability:
 
@@ -116,7 +120,7 @@ We made predictions with four different AA to explore trade-offs between predict
 
 4. A random forest model using the same set of predictors as the decision tree. This method is hardest to interpret and use but has shown good performance in previous studies predicting extinction risk [@Bland2015;@Darrah2017;@Lughadha2019;@Pelletier2018].
 
-We chose to predict if a species is threatened, to reduce imbalance between classes. Following the IUCN definition, we grouped the Critically Endangered, Endangered, and Vulnerable categories into our threatened class [@IUCN2012]. We formed our non-threatened class from the Near Threatened and Least Concern categories. We treated Data Deficient species as unassessed, generating predictions for them from our AA methods. We excluded Extinct and Extinct in the Wild species from our study.
+We chose to predict if a species is threatened, to reduce imbalance between classes. Following the IUCN definition, we grouped the Critically Endangered, Endangered, and Vulnerable categories into our threatened class [@IUCN2012] and grouped the Near Threatened and Least Concern categories into our non-threatened class. We treated Data Deficient species as unassessed, generating predictions for them from our AA methods. We excluded Extinct and Extinct in the Wild species from our study.
 
 ```{r predictor-table}
 predictor_table <-
@@ -126,19 +130,19 @@ predictor_table <-
     "Latitude of range centroid", "Centroid of occurrence records",
     "Human population density (HPD)", "Minimum value",
     "Human footprint index (HFI)", "Mean value",
-    "Forest loss", "Mean of proportion of pixels with forest loss from 5km$^2$ buffer around occurrence records",
+    "Forest loss", "Mean of proportion of pixels with forest loss from a 5km radius buffer around occurrence records",
     "Elevation", "Maximum value",
     "Precipitation in the driest quarter", "Mean value",
     "Average annual temperature", "Mean value"
   )
 
 predictor_table %>%
-  knitr::kable(caption="Predictors used in AA methods and their calculation. Unless otherwise stated, all values were extracted from the location of individual occurrence records. See Table SX for data sources.")
+  knitr::kable(caption="Predictors used in AA methods and their calculation. Unless otherwise stated, all values were extracted from the location of individual occurrence records. See Table S1 for data sources.")
 ```
 
 ### Method evaluation
 
-As the number of species with assessments for each taxonomic group was limited, we used 5-fold cross-validation repeated 10 times to train and evaluate our decision stump, decision tree, and random forest models. We used 100 bootstrap resamples of the data with assessments to evaluate our threshold-based method. We used the true skill statistic (TSS) as a balanced measure of performance to evaluate all methods, as well as accuracy, sensitivity, and specificity (see Supplementary Methods for definitions).
+As the number of species with assessments for each taxonomic group was limited, we used 5-fold cross-validation repeated 10 times to train and evaluate our decision stump, decision tree, and random forest models. We used 100 bootstrap resamples of the data with assessments to evaluate our threshold-based method. We used the true skill statistic (TSS) as a balanced measure of performance to evaluate all methods, as well as accuracy, sensitivity, and specificity (see Supplementary Methods for definitions). We also calculated the coverage of each cleaned occurrence dataset as the proportion of each species group for which a prediction could be made, i.e. the proportion of species with at least one occurrence record.
 
 ## Training and evaluation sample choice
 
@@ -150,7 +154,7 @@ We assessed the effect of sample balance on our three machine-learning-based AA 
 
 ## Method interpretation
 
-We compared the interpretibility of our machine-learning-based methods by inspecting the classifiction boundary of our decision stump model and a flow chart of splits from our decision tree model. We calculated SHapely Additive exPlanations (SHAPs) to interpret our random forest model. These values estimate each predictor's contribution to a prediction [@Lundberg2017] and can be aggregated to provide the importance and partial dependence of each predictor, as well as individual explanations. We limited this comparison to models trained on the orchid dataset with minimally cleaned data (filtering step 1 and coordinate cleaning step A) because orchids have proven more challenging to predict accurately than other plant groups [@NicLughadha2019].
+We compared the interpretability of our machine-learning-based methods by inspecting the classification boundary of our decision stump model and a flow chart of splits from our decision tree model. We calculated SHapely Additive exPlanations (SHAPs) to interpret our random forest model. These values estimate each predictor's contribution to a prediction [@Lundberg2017] and can be aggregated to provide the importance and partial dependence of each predictor, as well as individual explanations. We limited this comparison to models trained on the orchid dataset with minimally cleaned data (filtering step 1 and coordinate cleaning step A) because orchids have proven more challenging to predict accurately than other plant groups [@NicLughadha2019].
 
 For additional context, following Zizka et al. [-@Zizka2020], we fit logistic regression models to predictions for assessed species from all AA methods, of the form:
 
@@ -170,7 +174,7 @@ We performed our study using the R statistical computing language [@RCoreTeam202
 
 All methods performed well across every filtering and cleaning step, with TSS remaining above 0.25. Variation in TSS across CV folds suggests no clear change in performance with occurrence data cleaning (Fig. S1).
 
-Performance improvement was largest for the IUCN threshold method from coordinate-cleaning step A to D for all datasets except Orchids (Fig. \@ref(fig:performance-grid)). Mean TSS increased from 0.43 to 0.60 for *Myrcia*, 0.41 to 0.58 for SRLI legumes, and 0.53 to 0.61 for all legumes. Filtering steps 2, 3, and 4 had a negligible impact on performance.
+Performance improvement was largest for the IUCN threshold method from coordinate cleaning step A to D for all datasets except Orchids (Fig. \@ref(fig:performance-grid)). Mean TSS increased from 0.43 to 0.60 for *Myrcia*, 0.41 to 0.58 for SRLI legumes, and 0.53 to 0.61 for all legumes. Filtering steps 2, 3, and 4 had a negligible impact on performance.
 
 Performance of all methods was slightly poorer on the *Myrcia* monographic database than GBIF data with full coordinate cleaning. The random forest model's performance was worse on data from the monographic database (TSS = 0.59) than on minimally cleaned GBIF data (0.66).
 
@@ -182,11 +186,11 @@ After name-matching the GBIF occurrence records with coordinates (step 1A), the 
 
 Almost all *Myrcia* records were from preserved specimens (93.9%), while corresponding proportions were much smaller for the orchid (14.3%) and legume (15.2%) datasets. Therefore, filtering step 2 (keeping preserved specimens only) removed most orchid and legume occurrence records but very few *Myrcia* records. Filtering step 3 (removing records at duplicated coordinates) profoundly affected each dataset's number of occurrences, reducing the *Myrcia* dataset to 31,298 unique occurrences (64.9%), orchids to 1,912,129 (44.7%), and legumes to 8,415,070 (57.7%).
 
-The geographic cleaning steps removed fewer records than the filtering steps. Geographic cleaning step C removed most records from the orchid dataset (7.2%), while step D removed most records from the *Myrcia* (7.6%) and legume datasets (16.4%). Applying all filtering and geographic cleaning steps removed 42.9% of *Myrcia* occurrences, 91.1% of legume occurrences, and 91.2% of orchid occurrences. The monographic database comprised 10,823 *Myrcia* occurrences, less than half number in the automatically cleaned dataset.
+The coordinate cleaning steps removed fewer records than the filtering steps. Coordinate cleaning step C removed most records from the orchid dataset (7.2%), while step D removed most records from the *Myrcia* (7.6%) and legume datasets (16.4%). Applying all filtering and coordinate cleaning steps removed 42.9% of *Myrcia* occurrences, 91.1% of legume occurrences, and 91.2% of orchid occurrences. The monographic database comprised 10,823 *Myrcia* occurrences, less than half number in the automatically cleaned dataset.
 
 ###  Species coverage
 
-Filtering (steps 2 to 4) and cleaning (steps B to D) reduced the number of species available to train and evaluate AA methods, and limited the total proportion of species covered by automated predictions (Fig. \@ref(fig:species-coverage)). Before matching to GBIF occurrence records, the *Myrcia* dataset comprised 769 species with non-Data Deficient (DD) Red List assessments for 254 (33.0%). The orchid dataset comprised 30,479 species, 1,457 with non-DD assessments (4.8%), and the legume dataset comprised 22,123 species, 3,740 with assessments (16.9%), 844 of which assessd for the SRLI. AA method predictions would increase the proportion of species with an evidence-based assessment of extinction risk to, at most, 85.0% of *Myrcia* species, 83.5% of legumes, and 60.8% of orchids.
+Filtering (steps 2 to 4) and cleaning (steps B to D) reduced the number of species available to train and evaluate AA methods, and limited the total proportion of species covered by automated predictions (Fig. \@ref(fig:species-coverage)). Before matching to GBIF occurrence records, the *Myrcia* dataset comprised 769 species, with non-Data Deficient (DD) Red List assessments for 254 (33.0%). The orchid dataset comprised 30,479 species, 1,457 with non-DD assessments (4.8%), and the legume dataset comprised 22,123 species, 3,740 with assessments (16.9%), 844 of which assessd for the SRLI. AA method predictions would increase the proportion of species with an evidence-based assessment of extinction risk to, at most, 85.0% of *Myrcia* species, 83.5% of legumes, and 60.8% of orchids.
 
 ```{r species-coverage, out.width="100%", fig.cap="Number of species in each dataset with at least one occurrence record after applying each filtering and cleaning step. Dark red bars show the number of species with non-Data Deficient IUCN Red List assessments, used to train and evaluate AA methods."}
 knitr::include_graphics("../figures/figure-1_cleaning-species-coverage.png")
@@ -198,31 +202,31 @@ Applying all filtering and cleaning steps left 606 *Myrcia* species, 17,491 legu
 
 ###  Performance
 
-The IUCN threshold and decision stump methods performed worst on the orchid dataset, even with full geographic cleaning (0.32 and 0.29, respectively; Fig. \@ref(fig:performance-grid)). In contrast, the TSS of both methods improved after full geographic cleaning for the *Myrcia* dataset (IUCN threshold: 0.43 to 0.60; decision stump: 0.53 to 0.64). A smaller improvement was achieved on the legume dataset (IUCN threshold: 0.53 to 0.61; decision stump: 0.64 to 0.68).
+The IUCN threshold and decision stump methods performed worst on the orchid dataset, even with full coordinate cleaning (0.32 and 0.29, respectively; Fig. \@ref(fig:performance-grid)). In contrast, the TSS of both methods improved after full coordinate cleaning for the *Myrcia* dataset (IUCN threshold: 0.43 to 0.60; decision stump: 0.53 to 0.64). A smaller improvement was achieved on the legume dataset (IUCN threshold: 0.53 to 0.61; decision stump: 0.64 to 0.68).
 
 ```{r performance-grid, out.width="100%", fig.cap="Performance of automated assessment methods on datasets of *Myrcia*, orchid, and legume species after automated occurrence record filtering and coordinate cleaning. Results for *Myrcia* include a dataset of expert cleaned occurrences. For the legume datasets, methods were trained and evaluated on all legume assessments on the IUCN Red List, and assessments carried out on a random sample of legume diversity as part of the Sampled Red List Index (SRLI)."}
 knitr::include_graphics("../figures/figure-2_performance-grid.png")
 ```
 
-The TSS was higher for the orchid dataset with the decision tree and random forest models, even with minimal geographic cleaning (decision tree: 0.49; random forest: 0.56). However, the TSS of corresponding models trained on the *Myrcia* (decision tree: 0.55; random forest: 0.69) and legume (decision tree: 0.65; random forest: 0.68) datasets was still higher.
+The TSS was higher for the orchid dataset with the decision tree and random forest models, even with minimal coordinate cleaning (decision tree: 0.49; random forest: 0.56). However, the TSS of corresponding models trained on the *Myrcia* (decision tree: 0.55; random forest: 0.69) and legume (decision tree: 0.65; random forest: 0.68) datasets was still higher.
 
 ## Which sample of assessments is most effective for training and evaluating AA methods?
 
 The SRLI legume assessments had a low proportion of threatened assessments (11.8%). Although all three machine-learning-based methods' accuracy was above 85% on this training set (Fig. \@ref(fig:sample-choice)A), models trained on the SRLI assessments suffered from very low sensitivity (decision stump: 0.09; decision tree: 0.35; random forest: 0.26). Downsampling improved sensitivity for all machine-learning-based models trained on SRLI assessments (decision stump: 0.80; decision tree: 0.75; random forest: 0.77), thereby increasing the TSS but slightly reducing accuracy (Fig. \@ref(fig:sample-choice)A). Downsampling caused little to no improvement when trained on all legumes, or the  *Myrcia* and orchid training sets (Fig. S3), where the imbalance between classes was lower (20.5%, 40.9%, and 52.6% threatened, respectively).
 
-```{r sample-choice, out.width="100%", fig.cap="Exploration of AA method training and evaluation sample choice, comprising (A) the effect of downsampling on different performance metrics when AA methods were trained and evaluated on a representative sample of legume species used for the Sampled Red List Index (SRLI), (B) change in machine-learning-based AA method performance as they are trained on successively larger subsets of all legumes assessed on the IUCN Red List and those used for the SRLI, and (C) difference in proportion of unassessed species predicted threatened when AA methods are trained and evaluated on individual datasets and one combined dataset. Bars on (A) and (C) represent the 95% confidence interval of the cross-validated estimates."}
+```{r sample-choice, out.width="100%", fig.cap="Exploration of AA method training and evaluation sample choice, comprising (A) the effect of downsampling on different performance metrics when AA methods were trained and evaluated on a representative sample of legume species used for the Sampled Red List Index (SRLI), (B) change in machine-learning-based AA method performance as they are trained on successively larger subsets of all legumes assessed on the IUCN Red List and those used for the SRLI, and (C) difference in proportion of unassessed species predicted threatened when AA methods are trained and evaluated on individual datasets and on one combined dataset. Bars on (A) and (C) represent the 95% confidence interval of the cross-validated estimates."}
 knitr::include_graphics("../figures/figure-3_sample-choice_comparison.png")
 ```
 
 Even with downsampling, all AA methods performed worse when trained on the SRLI legume assessments than all assessed legumes (Fig. \@ref(fig:sample-choice)A, Fig. S3). Training the three machine-learning-based methods on successively larger subsets of the two groups of legume assessments (Fig. \@ref(fig:sample-choice)B) indicated that this difference in TSS persisted regardless of training set size.
 
-Training machine-learning-based models on all groups combined caused little improvement in our evaluation metrics (Fig. S4), but did result in lower sensitivity for *Myrcia* species. This difference in sensitivity corresponded to a lower predicted level of threat in unassessed *Myrcia* species when datasets were pooled (Fig. \@ref(fig:sample-choice)C).
+Training machine-learning-based models on all groups combined caused little or no improvement in our evaluation metrics (Fig. S4), but did result in lower sensitivity for *Myrcia* species. This difference in sensitivity corresponded to a lower predicted level of threat in unassessed *Myrcia* species when datasets were pooled (Fig. \@ref(fig:sample-choice)C).
 
 ## When should one AA method be used over another?
 
 All AA methods investigated achieved high predictive accuracy, regardless of the amount of cleaning applied to occurrence records (Fig. S5A). The highest accuracies were achieved on the *Myrcia* and legume datasets (78% - 89%), while accuracy on the orchid dataset was lower (61% - 79%). However, methods were often better at correctly predicting non-threatened species than threatened ones. The IUCN threshold method had the most marked imbalance across all datasets (Fig. S5B-C). Of the three AA methods investigated, our random forest model consistently had the highest TSS (Fig. \@ref(fig:performance-grid)).
 
-Logistic regressions fit to predictions for assessed species demonstrated that the accuracy of all models had some dependence on the number of occurrence records (Fig. S6; Table S1). This dependence was highest for IUCN threshold method applied to Legumes ($\beta = 3.41$, 95% CI=[3.04, 3.97])
+Logistic regressions fit to predictions for assessed species demonstrated that the accuracy of all models had some dependence on the number of occurrence records (Fig. S6; Table S2). This dependence was highest for IUCN threshold method applied to Legumes ($\beta = 3.41$, 95% CI=[3.04, 3.97])
 
 We explored different methods to interpret our machine learning models' behaviour using the orchid dataset. We summarised the decision stump model by extracting the learned EOO threshold. The average threshold across all CV folds was 30,848 km$^2$, higher than the IUCN threshold of 20,000 km$^2$, but the 95% confidence interval was wide and ranged from 2,833 km$^2$ to 73,290 km$^2$ (Fig. \@ref(fig:explanations)A).
 
@@ -244,13 +248,13 @@ High-stakes applications of AA methods in conservation make it essential that de
 
 ## How clean must occurrence data be?
 
-Given the well-documented issues with digitally available occurrence records [@Meyer2016;@Maldonado2015;@Zizka2019], it may seem reasonable to assume that AA methods will always perform better with carefully cleaned and georeferenced data. For example, Panter et al. [-@Panter2020] obtained more reliable preliminary assessments for threatened species in Bolivia after manually cleaning GBIF data.
+Given the well-documented issues with digitally available occurrence records [@Meyer2016;@Maldonado2015;@Zizka2019], it may seem reasonable to assume that AA methods will always perform better with carefully cleaned and georeferenced data. For example, Panter et al. [-@Panter2020] obtained more reliable preliminary assessments for species in Bolivia after manually cleaning GBIF data.
 
 Our results show that, despite these issues, AA methods using automatically cleaned data from GBIF give comparable or better performance than with hand-cleaned and georeferenced data. While we based our comparison on a relatively small set of around 200 species in the genus *Myrcia*, the high accuracy of other AA methods reported in the literature supports our findings [@Lughadha2019;@Zizka2020;@Stevart2019].
 
 Data cleaning was necessary to achieve good performance from the IUCN threshold method with  *Myrcia* and legume species. However, we found that data cleaning made little difference to the performance of the IUCN threshold method with orchid species. Similarly, Zizka et al. [-@Zizka2020] found that accuracy of another threshold-based AA method (ConR) on orchids did not improve with data cleaning. Therefore, we expect the optimal level of cleaning for threshold-based AA methods to depend on the study group.
 
-Machine learning methods investigated were less sensitive to data cleanliness, suggesting they can make good-quality automated assessments with minimal cleaning. Ability to use minimally cleaned data is important because we found a trade-off between using a highly cleaned set of occurrences records and generating predictions for as many species as possible. While all methods performed best with full automated cleaning, the species removed limited coverage of our predictions to 80.7% of *Myrcia*, 77.4% of legume, and 54.6% of orchid species. Other attempts at large-scale predictions of plant extinction risk have been similarly limited [@Zizka2020;@Pelletier2018].
+Machine learning methods investigated were less sensitive to data cleanliness, suggesting they can make good-quality automated assessments with minimal cleaning. Ability to use minimally cleaned data is important because we found a trade-off between using a highly cleaned set of occurrences records and generating predictions for as many species as possible. While all methods performed best with full automated cleaning, species removed by cleaning limited coverage of our predictions to 80.7% of *Myrcia*, 77.4% of legume, and 54.6% of orchid species. Other attempts at large-scale predictions of plant extinction risk have been similarly limited [@Zizka2020;@Pelletier2018].
 
 However, whatever the chosen level of cleaning, a large proportion of plant species have few or no digitally available occurrence records. These species are mostly rare, range-restricted, and therefore likely to be threatened. This problem was most acute for orchds, where we could make predictions for at most 60.2% of species.
 
@@ -266,17 +270,17 @@ Our findings are consistent with those of Zizka et al. [-@Zizka2020], who compar
 
 Using a machine-learning-based AA method raises the additional question of which sample of species is best to use for training. While the tendency might be to use as many species as possible, well-known gaps and biases in species selected for assessment may lead to poor predictive performance on unassessed species. 
 
-Our results suggest there is little benefit to using a sample of species designed to be representative of the diversity of the group of interest. Models trained on all available legume assessments outperformed the same model trained only on species assessed as part of the SRLI. This discrepancy remained even when we trained models on equal-sized subsamples of the two sets of assessments, suggesting differences in performance were more likely due to the large imbalance between threatened and non-threatened species in the SRLI than the datasets' different sizes. 
+Our results suggest there is little benefit to using a sample of species designed to be representative of the diversity of the group of interest. Models trained on all available legume assessments outperformed the same model trained only on species assessed as part of the SRLI. This discrepancy remained when we trained models on equal-sized subsamples of the two sets of assessments, suggesting differences in performance were more likely due to the large imbalance between threatened and non-threatened species in the SRLI than the datasets' different sizes. 
 
 Pelletier et al. [-@Pelletier2018] downsampled training sets for their random forest models to give equal numbers of species in each class. We found that downsampling improved the overall performance of all machine-learning-based models trained on the SRLI assessments at a small cost to predictive accuracy. However, downsampling made little difference to the performance on all other datasets, where the imbalance was lower.
 
-Similarly, we saw no benefit to performance when we combined the *Myrcia*, legume, and orchid assessments into a single training set. We did, however, see a small drop in the ability of all methods to identify threatened *Myrcia* species and a corresponding decrease in the proportion of unassessed *Myrcia* species predicted as threatened. This decrease may cause issues for applications that use sub-groups of the predictions, such as setting assessment priorities based on taxonomic groups.
+Similarly, we saw no benefit to performance when we combined the *Myrcia*, legume, and orchid assessments into a single training set. We did, however, see a small drop in the ability of all methods to identify threatened *Myrcia* species and a corresponding decrease in the proportion of unassessed *Myrcia* species predicted as threatened. This decrease may cause issues for applications that use sub-groups of these predictions, such as setting assessment priorities for particular taxonomic groups.
 
 ## When should one AA method be used over another?
 
 We found the random forest model was the best performing AA method for all species groups at every level of occurrence cleaning. However, all methods performed well and, with full automated cleaning of occurrence records, even the simplest IUCN threshold method achieved comparable performance.
 
-Despite their high predictive accuracy, a random forest model may not always be the best choice. Other considerations include the expertise and time needed and the fact that the model's complexity makes it difficult to understand its behaviour. This opacity makes diagnosing problems with the method difficult, so it is hard to know how much to trust individual predictions [@Wearn2019].
+Despite their high predictive accuracy, a random forest model may not always be the best choice. Other considerations include the expertise and time needed and the fact that the model's complexity makes its behaviour difficult to understand. This opacity makes diagnosing problems with the method difficult, so it is hard to know how much to trust individual predictions [@Wearn2019].
 
 Recent developments have made it easier to interpret black-box algorithms like random forests or neural networks (Molnar 2019).  We used SHapely Additive exPlanations (SHAP)[@Lundberg2017] to gain insight into our random forest orchid model by identifying the most important predictors and how the predicted probability of being threatened depended on each predictor. Furthermore, we were able to diagnose a possible deficiency in our choice of predictors by inspecting an explanation for an individual incorrect prediction.
 
@@ -294,16 +298,26 @@ We have attempted to provide evidence-based answers that lower barriers to succe
 
 2. **How does the chosen study group affect data cleaning and AA method performance?** Performance of AA methods and necessary cleaning levels are dependent on the group of species examined. We, therefore, recommend evaluating AA methods on species groups with distinct characteristics. When making automated assessments, the focal species group is often pre-determined. In these cases, we recommend selecting an AA method and cleaning protocol that has worked well on a similar group or evaluating different protocols to find the best for the specific problem.
 
-3. **Which sample of assessments is most effective for training and evaluating AA methods?** Our results suggest that it is best to use all assessed species, even when well-designed sub-sample is available. Machine-learning-based AA methods can make biased predictions when trained on an unbalanced sample of assessments, but downsampling is an effective strategy to counteract this. Finally, AA methods may perform well on a particular sample of assessments, but poorly on a sub-group within that sample. In this case, it may be better to train individual AA methods on these sub-groups.
+3. **Which sample of assessments is most effective for training and evaluating AA methods?** Our results suggest that it is best to use all assessed species, even when well-designed sub-sample is available. Machine-learning-based AA methods can make biased predictions when trained on an unbalanced sample of assessments, but downsampling is an effective strategy to counteract this. Finally, AA methods may perform well on a particular sample of assessments, but poorly on a sub-group within that sample. In such cases, it may be better to train individual AA methods on these sub-groups.
 
-4. **When should one AA method be used over another?** Our random forest model consistently achieved the best results across all groups in our study, at all levels of data cleaning. However, more straightforward methods investigated attained comparable performance in some settings. Ultimately, the most appropriate AA method will depend on intended applications and resources available.
+4. **When should one AA method be used over another?** Our random forest model consistently achieved the best results across all groups in our study, at all levels of data cleaning. However, more straightforward methods attained comparable performance in some settings. Ultimately, the most appropriate AA method will depend on intended applications and resources available.
 
 As well as providing answers, our study raised some questions that present possible challenges in using AA methods:
 
-* **How should we handle species with no available occurrence records?**  A large proportion of plant species have few or no digitally available occurrence records. This deficit limits applicability of AA methods and risks allowing the most threatened species to drop out of the assessment pipeline. More work is needed to make AA methods widely applicable or develop robust rules for handling species they cannot address.
+* **How should we handle species with no available occurrence records?**  A large proportion of plant species have few or no digitally available occurrence records. This deficit limits applicability of AA methods and risks allowing the most threatened species to drop out of the assessment pipeline. AA methods must incorporate robust rules to handle these species.
 
 * **How do we quantify uncertainty in a single species' prediction?** Presenting AA predictions alongside an uncertainty estimates would allow more effective decision making and open up new research avenues. While approaches exist for estimating uncertainty in machine learning predictions, there may be more value in quantifying uncertainty resulting from imprecisions in the underlying occurrence data.
 
 By following this study's recommendations and tackling these challenges, conservation biologists can increase confidence in adopting AA methods to scale up assessments and close coverage gaps.
+
+# Acknowledgments
+
+# Author contributions
+
+BW, TL, SP, EL, and EN all conceived of the article, contributed to the study design, and contributed to the writing. BW carried out the analysis, prepared the figures, and prepared the first draft. EL provided data from the monographic database of *Myrcia* specimens.
+
+# Data availability
+
+The data and code used for this study will be archived in Zenodo upon acceptance.
 
 # References

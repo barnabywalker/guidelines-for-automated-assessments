@@ -112,6 +112,8 @@ orchid_list <- vroom(here("output/orchid-rl_species-list.csv"))
 tree <- read_rds(here("output/results/decision_tree_example.rds"))
 
 # 1. data cleaning stats ----
+filter_labeller <- function(string) paste0("Filter step ", string)
+
 species_coverage <-
   processing_stats %>%
   left_join(
@@ -136,7 +138,8 @@ species_coverage <-
   scale_y_continuous(labels=label_comma()) +
   scale_fill_manual(values=status_colours, name="") +
   labs(x="Coordinate cleaning step", y="Species") +
-  facet_grid(group ~ filter, scales="free_y") +
+  facet_grid(group ~ filter, scales="free_y",
+             labeller=labeller(filter=as_labeller(filter_labeller))) +
   theme_grid() +
   theme(
     panel.grid.major.x=element_blank(),
@@ -172,7 +175,7 @@ performance_grid <-
                    limits=c("4", "3", "2", "1")) +
   viridis::scale_fill_viridis(name="True skill statistic", 
                               direction=1, limits=c(0, 1)) +
-  labs(x="Geographic cleaning step", y="Record filtering step") +
+  labs(x="Coordinate cleaning step", y="Record filtering step") +
   guides(fill=guide_colorbar(title.position="top", title.hjust=0, 
                              barheight=1, barwidth=25)) +
   theme_grid() +
@@ -443,9 +446,11 @@ stump_plot <-
             fill="black", ymin=-Inf, ymax=Inf, alpha=0.2) +
   geom_vline(xintercept=log10(stump_summary$.value + 1), linetype=2) +
   annotate("text", x=log10(stump_summary$.lower + 1) * 0.5, y=2.9, 
-           label="Predicted\nnot threatened", size=3, vjust=1, hjust=0.5) +
-  annotate("text", x=log10(stump_summary$.upper + 1) * 1.5, y=2.9, 
            label="Predicted\nthreatened", size=3, vjust=1, hjust=0.5) +
+  annotate("text", x=log10(stump_summary$.upper + 1) * 1.5, y=2.9, 
+           label="Predicted\nnot threatened", size=3, vjust=1, hjust=0.5) +
+  scale_x_continuous(labels=function(x) comma(10^x - 1),
+                     breaks=log10(c(0, 1e2, 1e4, 1e6, 1e8) + 1)) +
   labs(x=expression("EOO / "~km^2), y="IUCN Red List status") +
   theme_bw()
 

@@ -1,7 +1,8 @@
 ---
-title: "Supplementary Materials"
-author: "Barnaby Walker"
-date: "`r format(Sys.time(), '%Y-%m-%d')`"
+title: "Evidence-based guidelines for developing automated assessment methods"
+subtitle: "Supplementary materials"
+author:
+  - Barnaby E. Walker^[Royal Botanic Gardens, Kew, UK, b.walker@kew.org], Tarciso C.C. Leão^[Royal Botanic Gardens, Kew, UK], Steven P. Bachman^[Royal Botanic Gardens, Kew, UK], Eve Lucas^[Royal Botanic Gardens, Kew, UK], Eimear Nic Lughadha^[Royal Botanic Gardens, Kew, UK]
 output: 
   bookdown::word_document2: default
 bibliography: data_cleaning.bib
@@ -21,16 +22,16 @@ library(vroom)
 ## Automated name matching
 When matching IUCN Red List assessment names to WCVP, we manually resolved unmatched names to ensure we had as many assessed species as possible. This manual matching was infeasible when matching occurrence record names from GBIF, due to the number of names. Therefore, we used a more automated process.
 
-We first submitted taxon names with their author strings to KNMS. We then re-submitted any unmatched names, this time without the author strings. The KNMS can return multiple matches for a single name, which we resolved in both these steps by taking only the accepted names from multiple matches. If no accepted name was returned, we took the homotypic synonyms. If no accepted name or homotypic synonym was returned or multiple matches remained after filtering for these, we returned no match for that name. We then removed all occurrence records with unmatched names from our data sets.
+We first submitted taxon names with their author strings to the Kew Names Matching Service (KNMS; [@RBGKew]). We then re-submitted any unmatched names, this time without the author strings. The KNMS can return multiple matches for a single name, which we resolved in both these steps by taking only the accepted names from multiple matches. If no accepted name was returned, we took the homotypic synonyms. If no accepted name or homotypic synonym was returned or multiple matches remained after filtering for these, we returned no match for that name. We then removed all occurrence records with unmatched names from our data sets.
 
 ## Predictor preparation
 All four methods used EOO as a predictor, calculated as the area in $km^2$ enclosed by the minimum convex polygon around each species' occurrence records [@Moat2020]. For the decision tree and random forest models, we also used latitude of range centroid and six environmental and threat-based predictors (Table \@ref(tab:predictor-table)).
 
-We calculated six environmental and threat-based predictors by extracting values from appropriate raster layers at each occurrence record (Table \@ref(tab:predictor-table)). To account for imprecisions in raster data and record coordinates, we reprojected all raster layers to a resolution of 2.5 km and took the mean value from a 5 km buffer around each record's coordinates. We summarised these extracted values for each species across occurrence records, or the minimum or maximum at occurrence records (Table \@ref(tab:predictor-table)). We used the minimum value for human population density, as we consider it a better measure of threat across a species' range.
+We calculated six environmental and threat-based predictors by extracting values from appropriate raster layers at each occurrence record (Table \@ref(tab:predictor-table)). To account for imprecisions in raster data and record coordinates, we reprojected all raster layers to a resolution of 2.5 km and took the mean value from a 5 km radius buffer around each record's coordinates. We summarised these extracted values for each species across occurrence records, or the minimum or maximum at occurrence records (Table \@ref(tab:predictor-table)). We used the minimum value for human population density, as we consider it a better measure of threat across a species' range.
 
 ### Evaluation metrics
 
-We evaluated all AA methods using accuracy (proportion of species correctly classified), sensitivity (proportion of threatened species correctly classified), and specificity (proportion of non-threatened species correctly classified). We also calculated the true skill statistic (TSS), which is the sum of the sensitivity and specificity minus one. The TSS ranges between -1 and 1, where a score of 1 suggests the model is a perfect classifier and scores of zero or less suggest the model is no better than random guesses. In this way, TSS is a balanced measure of model performance.
+We evaluated all AA methods using accuracy (proportion of species correctly classified), sensitivity (proportion of threatened species correctly classified), and specificity (proportion of non-threatened species correctly classified). We also calculated the true skill statistic (TSS), which is the sum of the sensitivity and specificity minus one. The TSS ranges between -1 and 1, where a score of 1 suggests the model is a perfect classifier and scores of zero or less suggest the model is no better than random guesses. In this way, TSS is a balanced measure of model performance. Comparison or discussion of performance is based on TSS, unless another metric is specified.
 
 ## Software
 
@@ -61,7 +62,7 @@ knitr::include_graphics("../figures/figure-s6_accuracy-model-comparison.png")
 ```
 
 
-```{r permutation-importance, out.width="100%", fig.cap="Mean decrease in accuracy attriubtable to each predictor in our random forest models as estimated by permutation feature importance."}
+```{r permutation-importance, out.width="100%", fig.cap="Mean decrease in accuracy attributable to each predictor in our random forest models as estimated by permutation feature importance."}
 knitr::include_graphics("../figures/figure-s7_rf-permutation-importance.png")
 ```
 
