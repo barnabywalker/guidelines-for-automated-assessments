@@ -39,7 +39,8 @@ model_names <- c("IUCN threshold", "Decision stump", "Decision tree", "Random fo
 downsample_names <- c("no"="no downsampling",
                       "yes"="downsampling")
 status_names <- c("labelled"="evaluated, non-DD", 
-                  "unlabelled"="not evaluated or DD")
+                  "unlabelled"="not evaluated or DD",
+                  "unavailable"="no available records")
 feature_names <- c("eoo"="EOO",
                    "hpd"="Minimum HPD",
                    "hfi"="HFI",
@@ -73,7 +74,8 @@ pooling_colours <- c(
 
 status_colours <- c(
   "evaluated, non-DD"="#eb0001", 
-  "not evaluated or DD"="#ff9774"
+  "not evaluated or DD"="#ff9774",
+  "no available records"="#d9d9d9"
 )
 
 target_colours <- c(
@@ -85,6 +87,7 @@ target_colours <- c(
 # data summary statistics
 processing_stats <- vroom(here("output/results/processing_stats.csv"))
 occurrence_stats <- vroom(here("output/results/occurrence_stats.csv"))
+species_list_stats <- vroom(here("output/results/species_list_stats.csv"))
 
 # method performance
 performance <- vroom(here("output/results/performance.csv"))
@@ -111,14 +114,19 @@ tree <- read_rds(here("output/results/decision_tree_example.rds"))
 # 1. data cleaning stats ----
 species_coverage <-
   processing_stats %>%
-  mutate(unlabelled=species - labelled) %>%
-  select(group, target, filter, clean, labelled, unlabelled) %>%
-  pivot_longer(cols=c(labelled, unlabelled), names_to="status", values_to="n") %>%
+  left_join(
+    species_list_stats %>% select(group, target, total=species),
+    by=c("group", "target")
+  ) %>%
+  mutate(unlabelled=species - labelled,
+         unavailable=total - species) %>%
+  select(group, target, filter, clean, labelled, unlabelled, unavailable) %>%
+  pivot_longer(cols=c(labelled, unlabelled, unavailable), names_to="status", values_to="n") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group),
          status=recode(status, !!! status_names)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
-         status=factor(status, levels=c("not evaluated or DD", "evaluated, non-DD"), ordered=TRUE)) %>%
+         status=factor(status, levels=rev(status_names), ordered=TRUE)) %>%
   complete(filter, 
            nesting(group, clean, status)) %>%
   group_by(group, clean, status) %>%
@@ -175,20 +183,7 @@ ggsave(paste(output_dir, "figure-2_performance-grid.svg", sep="/"),
 
 # 3. sample choice exploration ----
 
-legume_performance <-
-  performance %>%
-  filter(group == "Legumes",
-         downsample == "yes",
-         !model %in% c("Logistic regression", "IUCN threshold"),
-         filter == 1,
-         clean == "A",
-         .metric == "TSS") %>%
-  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
-                         TRUE ~ group)) %>%
-  mutate(group=factor(group, levels=group_names, ordered=TRUE),
-         model=factor(model, levels=model_names, ordered=TRUE)) %>%
-  mutate(.n=185)
-  
+## legume learning curves
 learning_comparison <-
   learning_curves %>%
   filter(group == "Legumes",
@@ -211,6 +206,8 @@ learning_comparison <-
   facet_grid(~ model) +
   theme_grid()
 
+
+## SRLI legume downsampling vs. no downsampling
 downsample_srli_comparison <-
   performance %>%
   filter(group == "Legumes",
@@ -230,6 +227,7 @@ downsample_srli_comparison <-
   labs(y="", x="") +
   theme_grid()
 
+## combined vs. individual performance on each group ----
 group_prediction_comparison <-
   group_predictions %>%
   mutate(type="combined") %>%
@@ -258,6 +256,7 @@ group_prediction_comparison <-
   facet_grid(~ model) +
   theme_grid()
 
+## join all plots together and save ----
 sample_choice_plot <-
   (downsample_srli_comparison / learning_comparison / group_prediction_comparison) +
   plot_annotation(tag_levels="A") &
@@ -281,7 +280,9 @@ wrong_orchids <-
 set.seed(123)
 examples <- sample(wrong_orchids$wcvp_id, 5)
 
-# SHAP analysis - global, importance
+## SHAP analysis ----
+
+### predictor importance (global) ----
 shap_importance <-
   shap_values %>%
   group_by(feature, id, id2) %>%
@@ -295,7 +296,7 @@ shap_importance <-
   theme_grid()
   
 
-# SHAP analysis - global, partial dependence
+### partial dependence plot (global) ----
 scale_values <- function(values, log=FALSE) {
   if (log) {
     values <- log10(values + 1)
@@ -337,7 +338,7 @@ shap_dependence <-
   theme_bw() +
   theme(legend.position="bottom")
 
-# SHAP analysis - local, force plot example
+### force plot example (local) ----
 format_value <- function(value, units, trim=TRUE) {
   value <- format(value, digits=1, big.mark=",", scientific=FALSE)
   value <- str_trim(value)
@@ -397,7 +398,7 @@ shap_force <-
   theme_bw() +
   labs(y="", x="Probability threatened")
 
-# join shap plots together in one strip
+## join SHAP plots together ----
 shap_plots <- 
   shap_importance | shap_dependence | shap_force
 
@@ -413,7 +414,7 @@ shap_plots[[3]] <-
         axis.title.y=element_blank(),
         axis.ticks.y=element_blank())
 
-# decision stump
+## decision stump thresholds ----
 stump_summary <-
   stump_splits %>%
   filter(group == "Orchids",
@@ -441,17 +442,17 @@ stump_plot <-
             mapping=aes(xmin=log10(.lower+1), xmax=log10(.upper+1)),
             fill="black", ymin=-Inf, ymax=Inf, alpha=0.2) +
   geom_vline(xintercept=log10(stump_summary$.value + 1), linetype=2) +
-  geom_vline(xintercept=log10(20000 + 1), linetype=2, colour="steelblue") +
   annotate("text", x=log10(stump_summary$.lower + 1) * 0.5, y=2.9, 
            label="Predicted\nnot threatened", size=3, vjust=1, hjust=0.5) +
   annotate("text", x=log10(stump_summary$.upper + 1) * 1.5, y=2.9, 
            label="Predicted\nthreatened", size=3, vjust=1, hjust=0.5) +
-  labs(x=expression("EOO / "~km^2), y="") +
+  labs(x=expression("EOO / "~km^2), y="IUCN Red List status") +
   theme_bw()
 
-# decision tree
+## decision tree ----
 
-# plot the tree to get the data to do it in ggplot
+### get data in the right shape ----
+# need to actually plot it to extract the data easily
 plot_data <- rpart.plot::rpart.plot(tree, type=0, roundint=FALSE)
   
 branches_x <- plot_data$branch.x
@@ -517,7 +518,8 @@ tags <-
       mutate(label="no",
              x=x*1.5)
   )
-    
+
+### make flow chart ----
 decision_tree <-
   ggplot(mapping=aes(x=x, y=y)) +
   geom_segment(data=segments, 
@@ -534,6 +536,7 @@ decision_tree <-
     guides(fill=FALSE) +
     theme_void()
 
+## join all subplots ----
 explanation_plots <- 
   (stump_plot + decision_tree) / shap_plots +
   plot_annotation(tag_levels="A")
