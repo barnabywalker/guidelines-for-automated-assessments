@@ -125,7 +125,7 @@ raster_files <- list.files(here("data/rasters/hansen"))
 rasters <- purrr::map(raster_files, ~raster(here("data/rasters/hansen", .x)))
 merged_raster <- do.call(merge, c(rasters, tolerance=0.1))
 
-writeRaster(merged_raster, paste(output_dire, "forest_loss.tif", sep="/"),
+writeRaster(merged_raster, paste(output_dir, "forest_loss.tif", sep="/"),
             overwrite=TRUE)
 
 message("  Processed and saved forest loss rasters!")

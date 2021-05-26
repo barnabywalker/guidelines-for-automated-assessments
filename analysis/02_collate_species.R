@@ -97,7 +97,7 @@ matches <- tidy(matches)
 matches <- resolve_multiple_matches(
   matches, 
   match_file=here("output/name_matching/myrcia_matches_multiples.csv"),
-  resolution_file=here("data/myrcia_matches_resolution.json")
+  resolution_file=here("output/name_matching/myrcia_matches_resolution.json")
 )
 
 matches <- filter(matches, matched)
@@ -111,7 +111,7 @@ message(glue("Unable to match {nrow(unmatched)} names using KNMS with author str
 
 manual_matches <- manually_match_names(
   unmatched$scientificName, 
-  match_file=here("data/myrcia_manual_matches.json")
+  match_file=here("output/name_matching/myrcia_manual_matches.json")
 )
 
 matched_names <-
@@ -208,7 +208,7 @@ matches1 <- tidy(matches1)
 matches1 <- resolve_multiple_matches(
   matches1, 
   match_file=here("output/name_matching/legumes_matches_authors_multiples.csv"),
-  resolution_file=here("data/legumes_matches_authors_resolution.json")
+  resolution_file=here("output/name_matching/legumes_matches_authors_resolution.json")
 )
 
 # removed unmatched names
@@ -227,7 +227,7 @@ matches2 <- tidy(matches2)
 matches2 <- resolve_multiple_matches(
   matches2,
   match_file=here("output/name_matching/legumes_matches_no_author_multiples.csv"),
-  resolution_file=here("data/legumes_matches_no_authors_resolution.json")
+  resolution_file=here("output/name_matching/legumes_matches_no_authors_resolution.json")
 )
 
 matches2 <- filter(matches2, matched)
@@ -242,7 +242,7 @@ message(glue("Unable to match {nrow(unmatched)} names using KNMS"))
 
 manual_matches <- manually_match_names(
   unmatched$scientificName, 
-  match_file=here("data/legumes_manual_matches.json")
+  match_file=here("output/name_matching/legumes_manual_matches.json")
 )
 
 matched_names <-
@@ -350,7 +350,7 @@ matches <- tidy(matches)
 matches <- resolve_multiple_matches(
   matches, 
   match_file=here("output/name_matching/orchid_matches_multiples.csv"),
-  resolution_file=here("data/orchid_matches_resolution.json")
+  resolution_file=here("output/name_matching/orchid_matches_resolution.json")
 )
 
 matches <- filter(matches, matched)
@@ -364,7 +364,7 @@ message(glue("Unable to match {nrow(unmatched)} names using KNMS"))
 
 manual_matches <- manually_match_names(
   unmatched$scientificName, 
-  match_file=here("data/orchid_manual_matches.json")
+  match_file=here("output/name_matching/orchid_manual_matches.json")
 )
 
 matched_names <-
