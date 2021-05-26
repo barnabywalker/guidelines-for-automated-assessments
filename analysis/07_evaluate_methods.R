@@ -42,7 +42,7 @@ library(tidymodels)   # reproducible interface for statistical modelling
 library(furrr)        # map functions across data in parallel
 library(glue)         # string interpolation
 
-source(here("R/helper_functions.R"))
+source(here("R/model_functions.R"))
 
 # set up parallel processing ----
 all_cores <- parallel::detectCores()

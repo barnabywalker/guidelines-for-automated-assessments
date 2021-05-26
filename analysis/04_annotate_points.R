@@ -18,7 +18,7 @@ library(vroom)  # fast reading/writing for text files
 library(dplyr)  # manipulating data
 library(sf)     # hand spatial data
 
-source(here("R/helper_functions.R"))
+source(here("R/predictor_functions.R"))
 
 # set buffer size ----
 buffer_size <- 5000

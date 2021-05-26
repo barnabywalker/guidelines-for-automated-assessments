@@ -29,7 +29,7 @@ library(dplyr)        # manipulate data
 library(sf)           # handle spatial data
 library(vroom)        # fast reading/writing for text files
 
-source(here("R/helper_functions.R"))
+source(here("R/predictor_functions.R"))
 
 # load occurrences ----
 included_records <- vroom(records_file,

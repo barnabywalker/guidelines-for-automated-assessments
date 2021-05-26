@@ -19,7 +19,8 @@ library(stringr)  # manipulate strings
 library(glue)     # string interpolation
 library(kewr)     # access Kew's data APIs
 
-source(here("R/helper_functions.R"))
+source(here("R/requests_functions.R"))
+source(here("R/name_functions.R"))
 
 # set occurrence file paths ----
 myrcia_gbif_path <- here("data/gbif-myrtaceae_2021-03-15/")

@@ -1,181 +1,114 @@
-#' Functions to help with plotting.
+#' Functions and defaults to help with plotting.
 
-# map functions ----
-
-DEFAULT_FONT_COLOUR = "#22211d"
-DEFAULT_FONT_FAMILY = "Franklin Gothic Demi"
-DEFAULT_BACKGROUND_COLOUR = "#ffffff"
-DEFAULT_GRID_COLOUR = "#dbdbd9"
-DEFAULT_CAPTION_COLOUR = "#939184"
-
-bin_data <- function(continuous_data, breaks=7, break_label_expr="(?<=\\,).+(?=\\])") {
-  
-  if (length(breaks) == 1) {
-    break_min <- min(continuous_data, na.rm=TRUE)
-    break_max <- max(continuous_data, na.rm=TRUE)
-    
-    break_min <- break_min - break_min * 0.5
-    
-    breaks <- seq(from=break_min, to=break_max, length.out=breaks)
-  }
-  
-  discrete_data <- cut(continuous_data, breaks=breaks, 
-                       include.lowest=TRUE, ordered_result=TRUE)
-  
-  discrete_data <- forcats::fct_relabel(discrete_data,
-                                        ~stringr::str_extract(.x, break_label_expr))
-}
-
-#' a handy function for making an outline or mask of the goode map projection
-#' adapted from https://wilkelab.org/practicalgg/articles/goode.html
-goode_outline <- function(mask=FALSE) {
-  lats <- c(
-    90:-90,
-    -90:0, 0:-90,
-    -90:0, 0:-90,
-    -90:0, 0:-90,
-    -90:90,
-    90:0, 0:90,
-    90
-  )
-  
-  longs <- c(
-    rep(180, 181),
-    rep(c(80.01, 79.99), each=91),
-    rep(c(-19.99, -20.01), each=91),
-    rep(c(-99.99, -100.01), each=91),
-    rep(-180, 181),
-    rep(c(-40.01, -39.99), each=91),
-    180
-  )
-  
-  outline <-
-    list(cbind(longs, lats)) %>%
-    sf::st_polygon() %>%
-    sf::st_sfc(
-      crs="+proj=longlat +ellps=WGS84 +no_defs"
-    )
-  
-  if (mask) {
-    outline <- sf::st_transform(outline, crs="+proj=igh")
-    
-    xlim <- sf::st_bbox(outline)[c("xmin", "xmax")]*1.1
-    ylim <- sf::st_bbox(outline)[c("ymin", "ymax")]*1.1
-    
-    rectangle <- list(
-      cbind(
-        c(xlim[1], xlim[2], xlim[2], xlim[1], xlim[1]),
-        c(ylim[1], ylim[1], ylim[2], ylim[2], ylim[1])
-      )
-    )
-    
-    rectangle <- 
-      rectangle %>%
-      sf::st_polygon() %>%
-      sf::st_sfc(crs="+proj=igh")
-    
-    outline <- sf::st_difference(rectangle, outline)
-  }
-  
-  outline
-}
-
-#' A (hopefully) nice looking theme for maps, derived from 
-#' https://timogrossenbacher.ch/2016/12/beautiful-thematic-maps-with-ggplot2-only/
-theme_map <- function(...) {
-  theme_minimal() +
+# themes ----
+theme_grid <- function(...) {
+  theme_bw() +
     theme(
-      text=element_text(family=DEFAULT_FONT_FAMILY,
-                        colour=DEFAULT_FONT_COLOUR),
-      # remove axes
-      axis.line=element_blank(),
-      axis.text.x=element_blank(),
-      axis.text.y=element_blank(),
-      axis.ticks=element_blank(),
-      # put in a subtle grid
-      panel.grid.major=element_line(colour=DEFAULT_GRID_COLOUR, size=0.2),
-      panel.grid.minor=element_blank(),
-      # shade background
-      plot.background=element_rect(fill=DEFAULT_BACKGROUND_COLOUR, colour=NA),
-      panel.background=element_rect(fill=DEFAULT_BACKGROUND_COLOUR, colour=NA),
-      legend.background=element_rect(fill=DEFAULT_BACKGROUND_COLOUR, colour=NA),
-      panel.border=element_blank(),
-      # set margins
-      plot.margin=unit(c(0.5, 0.5, 0.2, 0.5), "cm"),
-      panel.spacing=unit(c(-0.1, 0.2, 0.2, 0.2), "cm"),
-      # define specific text settings
-      legend.title=element_text(size=11),
-      legend.text=element_text(size=9, hjust=0, colour=DEFAULT_FONT_COLOUR),
-      plot.title=element_text(size=15, hjust=0, colour=DEFAULT_FONT_COLOUR),
-      plot.subtitle=element_text(size=10, hjust=0.5, colour=DEFAULT_FONT_COLOUR,
-                                 margin=margin(b=-0.1, t=-0.1, l=2, unit="cm"),
-                                 debug=FALSE),
-      
-      plot.caption=element_text(size=7, hjust=0.5, margin=margin(t=0.2, b=0, unit="cm"),
-                                color=DEFAULT_CAPTION_COLOUR),
-      ...
+      panel.grid.major.x=element_line(linetype=3, colour="grey80"),
+      panel.grid.minor.x=element_blank(),
+      panel.grid.major.y=element_blank(),
+      panel.grid.minor.y=element_blank(),
+      panel.border=element_rect(colour="grey60"),
+      strip.background=element_rect(colour="grey60"),
+      legend.position="bottom"
     )
 }
 
-# guides
+# defaults ----
+## names ----
+group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
+group_names_small <- c("Myrcia", "Orchids", "Legumes")
 
-#' a guide to make a nice legend for a discrete choropleth
-guide_map <- function(...) {
-  guide_legend(
-    direction="horizontal",
-    keyheight=unit(4, units="mm"),
-    keywidth=unit(10, units="mm"),
-    label.hjust=1,
-    title.position="top",
-    nrow=1,
-    byrow=TRUE,
-    label.position="bottom",
-    ...
-  )
+model_names <- c("IUCN threshold", "Decision stump", "Decision tree", "Random forest")
+downsample_names <- c("no"="no downsampling",
+                      "yes"="downsampling")
+status_names <- c("labelled"="evaluated, non-DD", 
+                  "unlabelled"="not evaluated or DD")
+feature_names <- c("eoo"="EOO",
+                   "hpd"="Minimum HPD",
+                   "hfi"="HFI",
+                   "precipitation_driest"="Precipitation in\ndriest quarter",
+                   "forest_loss"="Forest loss",
+                   "temperature_annual"="Average annual\ntemperature",
+                   "elevation"="Elevation",
+                   "centroid_latitude"="Latitude of\nrange centroid")
+units <- c(
+  "EOO"="km^2",
+  "Minimum HPD"="persons / km^2",
+  "Precipitation in\ndriest quarter"="mm",
+  "Latitude of\nrange centroid"="\u00b0",
+  "Elevation"="m",
+  "Average annual\ntemperature"="\u00b0C",
+  "HFI"=NA_character_,
+  "Forest loss"=NA_character_
+)
+
+## colours ----
+downsample_colours <- c(
+  "no downsampling"="#ffd700",
+  "downsampling"="#0000ff"
+)
+
+pooling_colours <- c(
+  "combined"="#ffb14e",
+  "individual"="#9d02d7"
+)
+
+status_colours <- c(
+  "evaluated, non-DD"="#eb0001", 
+  "not evaluated or DD"="#ff9774"
+)
+
+target_colours <- c(
+  "IUCN RL"="#cd34b5",
+  "SRLI"="#fa8775"
+)
+
+# utilities ----
+
+#' Label function for facets.
+#' 
+#' usage: 
+#' 
+#' p +
+#' facet_grid(var ~ filter, labeller=labeller(filter=as_labeller(filter_labeller)))
+#' 
+filter_labeller <- function(string) paste0("Filter step ", string)
+
+#' Calculate the probability for a logistic regression given the slope and intercept.
+#' 
+#' Will only work for new data that has a column called `log10_n_specimens`.
+#' Could generalise it, but realistically this is only used for the accuracy vs.
+#' occurrences models.
+#' 
+logistic_fcn <- function(intercept, slope, newdata) {
+  newdata %>%
+    mutate(prob=intercept + slope * log10_n_specimens) %>%
+    mutate(prob=1 / (1 + exp(-prob)))
 }
 
-plot_map <- function(data, map, var, breaks, break_labels=NULL,
-                     colour_label=NULL) {
-  var <- enquo(var)
-  
-  if (is.null(break_labels)) {
-    break_labels <- as.character(breaks[2:length(breaks)])
+#' Scale a vector of values between its min and max.
+#' 
+#' Includes the option to log the values for vectors with a large range.
+#' The logging is base 10 because that makes sense for lots of things,
+#' and has 1 added to all values to account for zeros.
+#' 
+scale_values <- function(values, log=FALSE) {
+  if (log) {
+    values <- log10(values + 1)
   }
+  (values - min(values, na.rm=TRUE)) / (max(values, na.rm=TRUE) - min(values, na.rm=TRUE))
+}
+
+#' Format a predictor value nicely, including a unit in the returned label.
+#' 
+format_value <- function(value, units, trim=TRUE) {
+  value <- format(value, digits=1, big.mark=",", scientific=FALSE)
+  value <- str_trim(value)
   
-  filled_regions <- 
-    map %>%
-    left_join(
-      data,
-      by=c("LEVEL3_COD"="distribution")
-    )
-  filled_regions <- st_wrap_dateline(filled_regions,
-                                     options=c("WRAPDATELINE=YES",
-                                               "DATELINEOFFSET=180"))
-  filled_regions <- st_transform(filled_regions, st_crs("ESRI:54009"))
-  
-  filled_regions <-
-    filled_regions %>%
-    mutate(value=cut(!! var, 
-                     breaks=breaks, 
-                     labels=break_labels,
-                     include.lowest=TRUE,
-                     ordered_result=TRUE))
-  ggplot() +
-    geom_sf(data=filled_regions, colour="grey50", size=0.5/.pt) +
-    geom_sf(data=filter(filled_regions, !is.na(value)), 
-            mapping=aes(fill=value), colour="grey50", size=0.025/.pt) +
-    geom_sf(data=goode_outline(mask=TRUE), fill="white",
-            colour=NA, size=0.5) +
-    geom_sf(data=goode_outline(), fill=NA, colour="grey50", size=0.5) +
-    viridis::scale_fill_viridis(
-      name=colour_label,
-      discrete=TRUE,
-      na.value="grey80",
-      drop=FALSE,
-      begin=0.1, end=0.9,
-      direction=1,
-      guide=guide_map()
-    ) +
-    coord_sf(crs="+proj=igh") +
-    theme_map(legend.position="bottom")
+  glue(
+    "{value}",
+    "{units}",
+    .sep=" ", .na=""
+  )
 }

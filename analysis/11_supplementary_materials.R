@@ -22,72 +22,6 @@ library(patchwork)  # joins ggplots together
 
 source(here("R/plotting_functions.R"))
 
-# global settings ----
-## themes ----
-theme_grid <- function(...) {
-  theme_bw() +
-    theme(
-      panel.grid.major.x=element_line(linetype=3, colour="grey80"),
-      panel.grid.minor.x=element_blank(),
-      panel.grid.major.y=element_blank(),
-      panel.grid.minor.y=element_blank(),
-      panel.border=element_rect(colour="grey60"),
-      strip.background=element_rect(colour="grey60"),
-      legend.position="bottom"
-    )
-}
-
-## names ----
-group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
-group_names_small <- c("Myrcia", "Orchids", "Legumes")
-
-model_names <- c("IUCN threshold", "Decision stump", "Decision tree", "Random forest")
-downsample_names <- c("no"="no downsampling",
-                      "yes"="downsampling")
-status_names <- c("labelled"="evaluated, non-DD", 
-                  "unlabelled"="not evaluated or DD")
-feature_names <- c("eoo"="EOO",
-                   "hpd"="Minimum HPD",
-                   "hfi"="HFI",
-                   "precipitation_driest"="Precipitation in\ndriest quarter",
-                   "forest_loss"="Forest loss",
-                   "temperature_annual"="Average annual\ntemperature",
-                   "elevation"="Elevation",
-                   "centroid_latitude"="Latitude of\nrange centroid")
-units <- c(
-  "EOO"="km^2",
-  "Minimum HPD"="persons / km^2",
-  "Precipitation in\ndriest quarter"="mm",
-  "Latitude of\nrange centroid"="\u00b0",
-  "Elevation"="m",
-  "Average annual\ntemperature"="\u00b0C",
-  "HFI"=NA_character_,
-  "Forest loss"=NA_character_
-)
-
-filter_labeller <- function(string) paste0("Filter step ", string)
-
-## colours ----
-downsample_colours <- c(
-  "no downsampling"="#ffd700",
-  "downsampling"="#0000ff"
-)
-
-pooling_colours <- c(
-  "combined"="#ffb14e",
-  "individual"="#9d02d7"
-)
-
-status_colours <- c(
-  "evaluated, non-DD"="#eb0001", 
-  "not evaluated or DD"="#ff9774"
-)
-
-target_colours <- c(
-  "IUCN RL"="#cd34b5",
-  "SRLI"="#fa8775"
-)
-
 # load data ----
 # data summary statistics
 processing_stats <- vroom(here("output/results/processing_stats.csv"))
@@ -365,20 +299,13 @@ ggsave(paste(output_dir, "figure-s5_detailed-performance-comparison.svg", sep="/
 newpoints <- tibble(log10_n_specimens=seq(0,6,by=0.01))
 newpoints$n_specimens <- 10 ^ newpoints$log10_n_specimens
 
-# utility to get fitted probability from logistic model for new data
-f <- function(intercept, slope, newdata) {
-  newdata %>%
-    mutate(prob=intercept + slope * log10_n_specimens) %>%
-    mutate(prob=1 / (1 + exp(-prob)))
-}
-
 accuracy_lines <-
   accuracy_models %>%
   select(-std.error, -statistic, -p.value) %>%
   mutate(term=recode(term, "(Intercept)"="a", "log10(n_specimens)"="b")) %>%
   pivot_wider(names_from="term", values_from="estimate") %>%
   nest_by(group, target, filter, clean, model, downsample, id, id2) %>%
-  mutate(line=list(f(data$a, data$b, newpoints))) %>%
+  mutate(line=list(logistic_fcn(data$a, data$b, newpoints))) %>%
   select(-data) %>%
   unnest(cols=c(line))
 

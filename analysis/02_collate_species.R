@@ -28,7 +28,8 @@ library(purrr)      # map functions across data
 library(kewr)       # access Kew's data APIs
 library(progress)   # make nice progress bars
 
-source(here("R/helper_functions.R"))
+source(here("R/requests_functions.R"))
+source(here("R/name_functions.R"))
 
 # setup directories ----
 dir.create(here("output/name_matching"), showWarnings=FALSE)

@@ -31,7 +31,7 @@ library(furrr)        # map functions across data in parallel
 library(tidymodels)   # reproducible interface to statistical modelling
 library(randomForest) # train and use random forest models
 
-source(here("R/helper_functions.R"))
+source(here("R/model_functions.R"))
 
 # set up parallel processing ----
 all_cores <- parallel::detectCores()
