@@ -721,8 +721,6 @@ get_predictions <- function(fit_obj, x=NULL) {
   )
 }
 
-
-
 predict_iucn <- function(x, threshold=20000) {
   if ("rsplit" %in% class(x)) {
     x <- analysis(x)  
@@ -745,24 +743,42 @@ predict_iucn <- function(x, threshold=20000) {
   )
 }
 
-fit_sample <- function(wf, split, prop) {
-  train <- 
-    analysis(split) %>%
-    group_by(obs) %>%
-    slice_sample(prop=prop) %>%
-    ungroup()
+fit_sample <- function(wf, split, n=10, prop=NULL) {
+  if (is.null(n)) {
+    train <- 
+      analysis(split) %>%
+      group_by(obs) %>%
+      slice_sample(prop=prop) %>%
+      ungroup()
+    
+    n <- nrow(train)
+  } else {
+    train <- 
+      analysis(split) %>%
+      group_by(obs) %>%
+      slice_sample(n=n) %>%
+      ungroup()
+    
+    prop <- n / nrow(analysis(split))
+  }
   
   model <- fit(wf, train)
+  metrics <- metric_set(accuracy, sens, spec, j_index)
   
   assessment(split) %>%
     bind_cols(predict(model, .)) %>%
-    eval_metrics(truth=obs, estimate=.pred_class) %>%
+    metrics(truth=obs, estimate=.pred_class) %>%
     mutate(.prop=prop,
-           .n=nrow(train))
+           .n=n)
 }
 
-make_learning_curve <- function(wf, split, breaks=seq(0.5, 1, by=0.1)) {
-  map_dfr(breaks, ~fit_sample(wf, split, .x))  
+make_learning_curve <- function(wf, split, props=seq(0.5, 1, by=0.1), n=NULL) {
+  library(tidymodels)
+  if (is.null(n)) {
+    map_dfr(props, ~fit_sample(wf, split, prop=.x))  
+  } else {
+    map_dfr(n, ~fit_sample(wf, split, n=.x))  
+  }
 }
 
 calculate_shap <- function(wf, split) {
@@ -867,7 +883,7 @@ get_importance <- function(fit_obj, set=c("train", "valid"), metrics=NULL) {
   if (set == "train") {
     importance <-
       wf$fit$fit$fit %>%
-      randomForest::importance(type=1) %>%
+      randomForest::importance(type=1, scale=FALSE) %>%
       as_tibble(rownames="feature")
   } else {
     x <- assessment(fit_obj$splits[[1]])

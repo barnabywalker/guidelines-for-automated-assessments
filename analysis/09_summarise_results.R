@@ -121,7 +121,8 @@ predictors <-
 processing_stats <-
   predictors %>%
   group_by(group, target, filter, clean) %>%
-  summarise(species=n(),
+  summarise(records=sum(n_specimens),
+            species=n(),
             assessed=sum(!is.na(category)),
             labelled=sum(! is.na(category) & category != "DD"),
             eoo_median=median(eoo),
@@ -373,7 +374,7 @@ vroom_write(group_predictions, paste0(output_dir, "/groupwise_predictions.csv"),
 
 # learning curves ----
 curve_files <- list.files(here("output/model_results"),
-                          pattern="learning-curve.csv",
+                          pattern="learning-curves-n.csv",
                           full.names=TRUE)
 
 learning_curves <- vroom(curve_files, id="filename")
@@ -401,7 +402,7 @@ curve_summaries <-
          clean=recode(clean, "db"="expert")) %>%
   select(-filename)
 
-vroom_write(curve_summaries, paste0(output_dir, "/learning_curves.csv"),
+vroom_write(curve_summaries, paste0(output_dir, "/learning_curves_n.csv"),
             delim=",")
 
 # decision stump boundaries ----
@@ -451,10 +452,8 @@ write_rds(decision_tree$.fit[[1]]$.workflow[[1]]$fit$fit$fit,
 
 # random forest importance ----
 importance_files <- list.files(here("output/model_results"),
-                              pattern="_importance.csv",
+                              pattern="_valid-importance.csv",
                               full.names=TRUE)
-
-importances <- vroom(importance_files, id="filename")
 
 importances <-
   importances %>%
@@ -463,18 +462,14 @@ importances <-
          filter=str_extract(filename, "(?<=filter-)\\d+"),
          clean=str_extract(filename, "(?<=clean-)[A-Za-z]+"),
          downsample=str_extract(filename, "(?<=downsample-)[a-z]+")) %>%
-  mutate(group=recode(group, !!! group_names),
+  mutate(.metric=recode(.metric, !!! metric_names),
+         group=recode(group, !!! group_names),
          target=recode(target, !!! target_names),
          clean=recode(clean, "db"="expert")) %>%
   select(-filename)
-
-vroom_write(importances, paste0(output_dir, "/random_forest_importance.csv"),
-            delim=",")
-
-# shap example ----
-shap_file <- here("output/explanations/orchid_filter-1_clean-A_target-rl_downsample-no_model-rf_shap-explanations.csv")
-shaps <- vroom(shap_file)
-vroom_write(shaps, paste0(output_dir, "/random_forest_explanation_examples.csv"))
+vroom_write(importances, paste0(output_dir, "/random_forest_permutation_importance.csv"), delim=",")
+#vroom_write(importances, paste0(output_dir, "/random_forest_explanation_examples.csv"))
+# TODO: sort out, what happened to SHAPS?
 
 # accuracy models ----
 glm_files <- list.files(here("output/model_results"),
