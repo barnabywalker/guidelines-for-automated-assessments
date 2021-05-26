@@ -5,18 +5,19 @@
 #' the columns we don't need. Some automatic name matching is then done
 #' to match our accepted species list names to the GBIF ones.
 #' 
+#' At some point I changed from using `readr` to `vroom`, which lightens the
+#' load significantly for big datasets.
+#' 
 
 # libraries ----
-library(here)
-library(dplyr)
-library(readr)
-library(vroom)
-library(tidyr)
-library(purrr)
-library(stringr)
-library(glue)
-library(vroom)
-library(kewr)
+library(here)     # handle file paths
+library(dplyr)    # manipulate data
+library(tidyr)    # reshape data
+library(vroom)    # fast reading/writing text files
+library(purrr)    # map functions across data
+library(stringr)  # manipulate strings
+library(glue)     # string interpolation
+library(kewr)     # access Kew's data APIs
 
 source(here("R/helper_functions.R"))
 
@@ -32,60 +33,35 @@ col_names <- c("gbifID", "genus", "species", "taxonRank",
                "day", "month", "year", "taxonKey", 
                "speciesKey", "basisOfRecord", "issue")
 
-# Myrtaceae occurrences
+## Myrtaceae occurrences ----
 myrt_path <- list.files(myrcia_gbif_path, full.names=TRUE)
 myrcia_occurrences <- vroom(myrt_path, delim="\t", 
                             col_select=all_of(col_names), quote="")
 
-# legume occurrences
+## legume occurrences ----
 legume_path <- list.files(legume_gbif_path, full.names=TRUE)
 legume_occurrences <- vroom(legume_path, delim="\t", quote="",
                             col_select=all_of(col_names))
 
-# Orchid occurrences
+## Orchid occurrences ----
 orchid_path <- list.files(orchid_gbif_path, full.names=TRUE)
 orchid_occurrences <- vroom(orchid_path, delim="\t", 
                             col_select=all_of(col_names), quote="")
 
-# Query and dump occurrences from Myrcia sl database ----
-con <- DBI::dbConnect(odbc::odbc(), 
-                      driver="Microsoft Access Driver (*.mdb, *.accdb)", 
-                      dbq="T:\\GIS\\Eve\\Myrtaceae_Main_2019.accdb")
-
-myrcia_db <- tbl(con, "Central_Myrtaceae2019")
-
-myrcia_db <-
-  myrcia_db %>% 
-  filter(! is.na(Checklist),
-         ! `Not to include`,
-         LongDD > -9999,
-         LatDD > -9999) %>%
-  collect() %>% 
-  filter(str_detect(Checklist, "^(Myrcia|Calyptranthes|Marlierea|Mitranthes|Gomidesia) [a-z]"),
-         !(LongDD == 0 & LatDD == 0)) %>%
-  mutate(LatDD=ifelse(Latitude == "N" & LatDD < 0, -1*LatDD, LatDD)) %>%
-  select(`Specimen ID`, Checklist, LatDD, LongDD) %>%
-  rename(specimen_id="Specimen ID", species=Checklist, decimalLongitude=LongDD, decimalLatitude=LatDD)
-
-write_csv(myrcia_db, here("output/myrcia-db_raw-occurrences.csv"))
-
 # load species list data ----
-# myrcia species
-myrcia_species <- read_csv(here("output/myrcia-rl_species-list.csv"))
 
-# legume species
-legume_species <- read_csv(here("output/legume-rl_species-list.csv"))
+myrcia_species <- vroom(here("output/myrcia-rl_species-list.csv"))
+legume_species <- vroom(here("output/legume-rl_species-list.csv"))
+orchid_species <- vroom(here("output/orchid-rl_species-list.csv"))
 
-# orchid data
-orchid_species <- read_csv(here("output/orchid-rl_species-list.csv"))
-
-# match myrcia GBIF names to WCVP ----
+# match myrcia names ----
 
 myrcia_occurrences <- 
   myrcia_occurrences %>%
   filter(str_detect(scientificName, "^(Myrcia|Calyptranthes|Marlierea|Mitranthes|Gomidesia) [a-z]")) %>%
   mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
 
+## match to WCVP with author ----
 unique_names <- 
   myrcia_occurrences %>%
   distinct(scientificName, taxonKey)
@@ -97,6 +73,7 @@ matches1 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## match to WCVP without author ----
 unmatched <- 
   myrcia_occurrences %>%
   filter(! scientificName %in% matches1$submitted)
@@ -112,6 +89,7 @@ matches2 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## exact match to WCVP for things KNMS missed ----
 matches3 <-
   unmatched %>%
   filter(! name %in% matches2$submitted) %>%
@@ -124,7 +102,7 @@ matches3 <-
   filter(! is.na(id)) %>%
   rename(submitted=name, match_id=id)
 
-# get WCVP taxon status and resolve multiple matches automatically
+## resolve multiple matches ----
 matches1 <-
   matches1 %>%
   get_accepted_info(.wait=0.1) %>%
@@ -174,7 +152,7 @@ matched_names <-
   bind_rows(matches3) %>%
   select(-n)
 
-# get ID of parent species if accepted taxon is an infraspecific
+## get parent ID for infraspecifics ----
 matched_names <-
   matched_names %>% 
   get_parent_ids(accepted_id) %>%
@@ -183,7 +161,7 @@ matched_names <-
                               TRUE ~ accepted_id)) %>%
   select(-wcvp, -parent_id)
 
-# add back unmatched and save matching details for reference if needed
+## save matching details ----
 unmatched_names <-
   myrcia_occurrences %>%
   filter(! taxonKey %in% matched_names$taxonKey) %>%
@@ -196,7 +174,7 @@ matched_names %>%
   ) %>%
   write_csv(here("output/name_matching/myrcia-gbif_name-matches.csv"))
 
-# add WCVP IDs to myrcia GBIF occurrences ----
+## add WCVP IDs to GBIF occurrences ----
 
 myrcia_occurrences %>%
   left_join(
@@ -218,11 +196,12 @@ myrcia_occurrences %>%
          basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
     write_csv(here("output/myrcia-gbif_occurrences.csv"))
 
-# name match monographic Myrcia names to WCVP ----
-# these should largely be fine
+# match monographic database names ----
 
+# these should largely be fine
 names_to_match <- unique(myrcia_db$species)
 
+## match to WCVP ----
 matches <- 
   names_to_match %>%
   match_knms() %>%
@@ -243,6 +222,7 @@ matched_names <-
   bind_rows(manual_matches) %>%
   select(submitted, match_id=ipni_id)
 
+## resolve multiple matches ----
 matched_names <-
   matched_names %>%
   get_accepted_info(.wait=0.1) %>%
@@ -257,7 +237,7 @@ matched_names <-
   filter(n == 1) %>%
   select(-n)
 
-# get ID of parent species if accepted taxon is an infraspecific
+## get parent ID for infraspecifics ----
 matched_names <-
   matched_names %>% 
   get_parent_ids(accepted_id) %>%
@@ -266,7 +246,7 @@ matched_names <-
                               TRUE ~ accepted_id)) %>%
   select(-wcvp, -parent_id)
 
-# add back unmatched and save matching details for reference if needed
+## save matching details ----
 unmatched_names <-
   myrcia_db %>%
   filter(! species %in% matched_names$submitted) %>%
@@ -279,7 +259,7 @@ matched_names %>%
   ) %>%
   write_csv(here("output/name_matching/myrcia-db_name-matches.csv"))
 
-# add WCVP ids to Myrcia db occurrences and save ----
+## add WCVP IDs to occurrences ----
 
 # add accepted species keys to occurrences for monographic database
 myrcia_db %>%
@@ -305,13 +285,14 @@ myrcia_db %>%
          basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
   write_csv(here("output/myrcia-db_occurrences.csv"))
 
-# name match legume GBIF names to WCVP ----
+# match legume names ----
 legume_occurrences <- 
   legume_occurrences %>%
   filter(!taxonRank %in% c("FAMILY", "GENUS", "UNRANKED")) %>%
   filter(!str_detect(scientificName, "×")) %>%
   mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
 
+## match to WCVP with author ----
 unique_names <- 
   legume_occurrences %>%
   distinct(scientificName, taxonKey)
@@ -322,6 +303,7 @@ matches1 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## match to WCVP without author ----
 unmatched <- 
   legume_occurrences %>%
   filter(! scientificName %in% matches1$submitted)
@@ -336,6 +318,7 @@ matches2 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## exact match to WCVP for things KNMS missed ----
 matches3 <-
   unmatched %>%
   filter(! name %in% matches2$submitted) %>%
@@ -348,7 +331,7 @@ matches3 <-
   filter(! is.na(id)) %>%
   rename(submitted=name, match_id=id)
 
-# get WCVP taxon status and resolve multiple matches automatically
+## resolve multiple matches ----
 matches1 <-
   matches1 %>%
   get_accepted_info(.wait=0.1) %>%
@@ -398,7 +381,7 @@ matched_names <-
   bind_rows(matches3) %>%
   select(-n)
 
-# get ID of parent species if accepted taxon is an infraspecific
+## get parent ID for infraspecifics ----
 matched_names <-
   matched_names %>% 
   get_parent_ids(accepted_id) %>%
@@ -407,7 +390,7 @@ matched_names <-
                               TRUE ~ accepted_id)) %>%
   select(-wcvp, -parent_id)
 
-# add back unmatched and save matching details for reference if needed
+## save matching details ----
 unmatched_names <-
   legume_occurrences %>%
   filter(! taxonKey %in% matched_names$taxonKey) %>%
@@ -420,13 +403,12 @@ matched_names %>%
   ) %>%
   write_csv(here("output/name_matching/legume-gbif_name-matches.csv"))
 
-# add accepted species keys to occurrences
+## add WCVP IDs to GBIF occurrences ----
+
 legume_ids <- 
   legume_species %>%
   filter(! is.na(id)) %>%
   pull(id)
-
-# add WCVP ids to legume occurrences ----
 
 legume_occurrences %>%
   left_join(
@@ -448,7 +430,7 @@ legume_occurrences %>%
          basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
   write_csv(here("output/legume-gbif_occurrences.csv"))
 
-# match orchid GBIF names to WCVP ----
+# match orchid names ----
 
 orchid_occurrences <- 
   orchid_occurrences %>%
@@ -456,6 +438,7 @@ orchid_occurrences <-
   filter(!str_detect(scientificName, "×")) %>%
   mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
 
+## match to WCVP with author ----
 unique_names <- 
   orchid_occurrences %>%
   distinct(scientificName, taxonKey)
@@ -466,6 +449,7 @@ matches1 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## match to WCVP without author ----
 unmatched <- 
   orchid_occurrences %>%
   filter(! scientificName %in% matches1$submitted)
@@ -480,6 +464,7 @@ matches2 <-
   filter(matched) %>%
   select(submitted, match_id=ipni_id)
 
+## exact match to WCVP for things KNMS missed ----
 matches3 <-
   unmatched %>%
   filter(! name %in% matches2$submitted) %>%
@@ -492,7 +477,7 @@ matches3 <-
   filter(! is.na(id)) %>%
   rename(submitted=name, match_id=id)
 
-# get WCVP taxon status for matches to deduplicate
+## resolve multiple matches ----
 matches1 <-
   matches1 %>%
   get_accepted_info(.wait=0.1) %>%
@@ -542,7 +527,7 @@ matched_names <-
   bind_rows(matches3) %>%
   select(-n)
 
-# get ID of parent species if accepted taxon is an infraspecific
+## get parent ID for infraspecifics ----
 matched_names <-
   matched_names %>% 
   get_parent_ids(accepted_id) %>%
@@ -551,7 +536,7 @@ matched_names <-
                               TRUE ~ accepted_id)) %>%
   select(-wcvp, -parent_id)
 
-# add back unmatched and save matching details for reference if needed
+## save matching details ----
 unmatched_names <-
   orchid_occurrences %>%
   filter(! taxonKey %in% matched_names$taxonKey) %>%
@@ -564,7 +549,7 @@ matched_names %>%
   ) %>%
   write_csv(here("output/name_matching/orchid-gbif_name-matches.csv"))
 
-# add WCVP ids to orchid occurrences ----
+## add WCVP IDs to GBIF occurrences ----
 
 orchid_occurrences %>%
   left_join(

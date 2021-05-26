@@ -1,16 +1,21 @@
-#' Make summary outputs from the results for the paper.
+#' A very lengthy script to wrangle the model outputs into 
+#' nice summaries to make comparison and plotting in the paper easier.
+#' 
+#' EXPECTED INPUTS:
+#'  - `output_dir`: path to a directory to save summarised results (must exist)
 #' 
 
 # libraries ----
-library(here)
-library(vroom)
-library(readr)
-library(dplyr)
-library(stringr)
-library(purrr)
-library(tidymodels)
+library(here)       # handle file paths
+library(vroom)      # fast reading/writing for text files
+library(readr)      # read/write text and data files
+library(dplyr)      # manipulate data
+library(stringr)    # manipulate strings
+library(purrr)      # map functions across data
+library(tidymodels) # reproducible interface for statistical modelling
 
-# standard names ----
+# some global settings ----
+## standard names ----
 metric_names <- c("accuracy"="Accuracy",
                   "sens"="Sensitivity",
                   "spec"="Specificity",
@@ -21,8 +26,7 @@ group_names <- c("legume"="Legumes",
                  "orchid"="Orchids",
                  "all"="All")
 
-model_names <- c("logistic"="Logistic regression",
-                 "rf"="Random forest",
+model_names <- c("rf"="Random forest",
                  "threshold"="IUCN threshold",
                  "dt"="Decision tree",
                  "stump"="Decision stump")
@@ -31,6 +35,7 @@ target_names <- c("rl"="IUCN RL",
                   "srli"="SRLI")
 
 # species list stats ----
+# the number of total, assessed, non-DD assessed, and threatened species in each group
 species_files <- list.files(here("output"),
                             pattern="_species-list.csv",
                             full.names=TRUE)
@@ -70,7 +75,8 @@ vroom_write(species_list_stats, paste(output_dir, "species_list_stats.csv", sep=
             delim=",")
 
 # raw occurrence record stats ----
-
+# the number, mean, and median records, and number of preserved specimens in
+# GBIF occurrences before cleaning
 occurrence_files <- list.files(here("output"),
                                pattern="_occurrences.csv",
                                full.names=TRUE)
@@ -100,7 +106,7 @@ vroom_write(occurrence_summary, paste(output_dir, "occurrence_stats.csv", sep="/
             delim=",")
 
 # predictor cleaning stats ----
-
+# same stats as in previous two sections but after each cleaning step
 predictor_files <- list.files(here("output/predictors"),
                               pattern="^(myrcia|legume|orchid)",
                               full.names=TRUE)
@@ -134,34 +140,6 @@ processing_stats <-
 vroom_write(processing_stats, paste(output_dir, "processing_stats.csv", sep="/"),
             delim=",")
 
-# summarise distributions ----
-
-distribution_files <- list.files(here("output"), 
-                                 pattern="_distributions.csv",
-                                 full.names=TRUE)
-
-distributions <- vroom(distribution_files,
-                       id="filename")
-
-distributions <-
-  distributions %>%
-  mutate(group=str_extract(filename, "(?<=output/)[a-z]+")) %>%
-  mutate(group=recode(group, !!! group_names)) %>%
-  select(-filename)
-
-distribution_counts <-
-  species_list %>%
-  select(group, target, id, name, category) %>%
-  left_join(distributions, by=c("group", "id", "name")) %>%
-  group_by(group, target, distribution) %>%
-  summarise(
-    species=n(),
-    assessed=sum(!is.na(category)),
-    .groups="drop"
-  )
-
-vroom_write(distribution_counts, paste(output_dir, "distribution_counts.csv", sep="/"), delim=",")
-
 # summarise performance data ----
 performance_files <- list.files(here("output/model_results"),
                                 pattern="_performance.csv",
@@ -194,7 +172,7 @@ performance_summarised <-
 
 vroom_write(performance_summarised, paste(output_dir, "performance.csv", sep="/"), delim=",")
 
-# group-wise performance for "all" models ----
+# group-wise performance for models trained on all groups combined ----
 prediction_files <- list.files(here("output/model_results"),
                                pattern="all_.+_test-predictions.csv",
                                full.names=TRUE)
@@ -306,7 +284,7 @@ predictions_summary <-
 vroom_write(predictions_summary, paste(output_dir, "predictions.csv", sep="/"),
             delim=",")
 
-# group-wise predictions for "all" models ----
+# group-wise predictions for models trained on all groups combined ----
 widths <- seq(from=0.9, to=0.5, by=-0.1)
 
 prediction_files <- list.files(here("output/model_results"),
@@ -406,11 +384,11 @@ vroom_write(curve_summaries, paste0(output_dir, "/learning_curves_n.csv"),
             delim=",")
 
 # decision stump boundaries ----
-
 stump_files <- list.files(here("output/models"),
                           pattern="model-stump",
                           full.names=TRUE)
 
+# utility function to extract the EOO from the workflow object
 get_split <- function(stump) {
   split <- stump$.workflow[[1]]$fit$fit$fit$splits[,"index"]
   if (is.null(split)) {
@@ -444,13 +422,15 @@ vroom_write(stump_splits, paste0(output_dir, "/decision_stump_splits.csv"),
             delim=",")
 
 # decision tree example ----
+# we have a decision tree for each fold of CV, for each group, at each cleaning step
+# so we'll just take a single tree as an example of how to visualise it
 model_file <- here("output/models/orchid_filter-1_clean-A_target-rl_downsample-no_model-dt.rds")
 decision_tree <- read_rds(model_file)
 
 write_rds(decision_tree$.fit[[1]]$.workflow[[1]]$fit$fit$fit,
           paste0(output_dir, "/decision_tree_example.rds"))
 
-# random forest importance ----
+# random forest permutation importance ----
 importance_files <- list.files(here("output/model_results"),
                               pattern="_valid-importance.csv",
                               full.names=TRUE)
@@ -467,11 +447,10 @@ importances <-
          target=recode(target, !!! target_names),
          clean=recode(clean, "db"="expert")) %>%
   select(-filename)
-vroom_write(importances, paste0(output_dir, "/random_forest_permutation_importance.csv"), delim=",")
-#vroom_write(importances, paste0(output_dir, "/random_forest_explanation_examples.csv"))
-# TODO: sort out, what happened to SHAPS?
 
-# accuracy models ----
+vroom_write(importances, paste0(output_dir, "/random_forest_permutation_importance.csv"), delim=",")
+
+# accuracy logistic regressions ----
 glm_files <- list.files(here("output/model_results"),
                         pattern="accuracy-models.csv",
                         full.names=TRUE)

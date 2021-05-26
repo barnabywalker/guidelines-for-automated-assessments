@@ -1,9 +1,11 @@
 #' Compile raster data used in this study..
 #' 
 #' The lowest resolution rasters are 2.5 min, so all other
-#' rasters will be aggregated up to this resolution. They also
-#' have different projections, but it will be easier to reproject
-#' the points before extracting values.
+#' rasters will be aggregated up to this resolution (apart 
+#' from the forest loss raster, which was such a small resolution 
+#' aggregating to 2.5 min would take much too long). 
+#' They also have different projections, but it will be easier 
+#' to reproject the points before extracting values.
 #' 
 #' The rasters being downloaded are:
 #'   - some climatic layers from Bioclim
@@ -36,7 +38,6 @@ library(purrr)     # map functions across lists
 library(glue)      # string interpolation
 library(stringr)   # manipulating strings
 library(progress)  # making progress bars
-library(rgee)
 
 # setup ----
 
@@ -93,7 +94,68 @@ writeRaster(r, paste(output_dir, "human_population.tif", sep="/"))
 message("  Resaved human population raster!")
 
 # global forest loss ----
-# using google earth engine for this!
+dir.create(here("data/rasters/hansen"))
+
+# need to request the URLs to each tile to download
+raster_urls <- readLines("https://storage.googleapis.com/earthenginepartners-hansen/GFC-2018-v1.6/lossyear.txt")
+
+pb <- progress_bar$new(total=length(raster_urls),
+                       format="downloading and aggregating forest loss rasters [:bar] :current/:total (:percent)")
+pb$tick(0)
+
+# download and aggregate each tile individually
+for (i in 1:length(raster_urls)) {
+  pb$tick()
+  
+  url <- raster_urls[i]
+  name <- str_extract(url, "\\d+(N|S)_\\d+(E|W)\\.tif")
+  
+  ras <- raster(url)
+  # convert to binary loss/no loss - comes as year of loss
+  values(ras) <- ifelse(values(ras) > 0, 1, 0)
+  vx <- velox(ras)
+  
+  # aggregating with mean to get proportion of pixels in set that have loss
+  vx$aggregate(factor=40, aggtype="mean")
+  vx$write(path=here("data/rasters/hansen", name), overwrite=TRUE)
+}
+
+# now we load and merge the aggregated tiles
+raster_files <- list.files(here("data/rasters/hansen"))
+rasters <- purrr::map(raster_files, ~raster(here("data/rasters/hansen", .x)))
+merged_raster <- do.call(merge, c(rasters, tolerance=0.1))
+
+writeRaster(merged_raster, paste(output_dire, "forest_loss.tif", sep="/"),
+            overwrite=TRUE)
+
+message("  Processed and saved forest loss rasters!")
 
 # elevation ----
-# using google earth engine for this!
+
+# get tile filenames from download
+elevation_files <- list.files(here("data/rasters/elevation/SRTMv4.1/tifs"), pattern=".+\\.tif$")
+
+
+pb <- progress_bar$new(total=length(elevation_files), 
+                       format="aggregating elevation rasters [:bar] :current/:total (:percent)")
+pb$tick(0)
+for (elevation_file in elevation_files) {
+  pb$tick()
+  
+  tile_id <- str_extract(elevation_file, "(?<=srtm_).+(?=\\.tif)")
+  out_file <- paste0("elevation_tile_", tile_id, ".tif")
+  
+  # aggregating to 50x resolution from 90m resolution, to match bioclim rasters
+  tile <- velox(here("data/rasters/elevation/SRTMv4.1/tifs", elevation_file))
+  tile$aggregate(factor=50, aggtype="mean")
+  writeRaster(tile$as.RasterLayer(), paste(output_dir, "elevation", out_file, sep="/"), overwrite=TRUE)
+}
+
+# now we load in all the aggregated tiles and merge into a single raster
+elevation_files <- list.files(output_dir, pattern="elevation_tile_", full.names=TRUE)
+raster_list <- map(elevation_files, raster)
+merged_raster <- do.call(merge, c(raster_list, tolerance=0.1))
+
+writeRaster(merged_raster, paste(output_dir, "elevation_merged.tif", sep="/"))
+
+message("  Processed and saved elevation rasters!")

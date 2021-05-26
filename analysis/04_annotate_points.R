@@ -5,21 +5,20 @@
 #' use values extracted from rasters and aggregated across occurrence records
 #' for a species. This script extracts these values for every occurrence record
 #' that it can. Before extracting raster values, each occurrence record is
-#' buffered by 5 km.
+#' buffered by a 5 km radius.
 #' 
+#' EXPECTED INPUTS:
+#'  - `occurrence_file`: path to file containing occurrences to be labelled
+#'  - `output_occurrence_file`: path to save the labelled occurrences to
 #' 
 
 # libraries ----
-library(here)
-library(vroom)
-library(dplyr)
-library(sf)
-library(rgee)
+library(here)   # handle file paths
+library(vroom)  # fast reading/writing for text files
+library(dplyr)  # manipulating data
+library(sf)     # hand spatial data
 
 source(here("R/helper_functions.R"))
-
-# set up earth engine ----
-ee_Initialize(drive=TRUE)
 
 # set buffer size ----
 buffer_size <- 5000
@@ -52,10 +51,9 @@ occurrences_sf <-
   
 # label with raster values ----
 
-# TODO: Make this work with EE rasters for elevation and forest loss
-
 # buffering takes a lot of memory, so we buffer and extract in chunks
-# make a list of all the rasters we want to use
+
+## make a list of all the rasters we want to use ----
 raster_files <- list(
   # elevation
   elevation=here("output/rasters/elevation_merged.tif"),
@@ -70,7 +68,7 @@ raster_files <- list(
   precipitation_driest=here("output/rasters/precipitation_driest.tif")
 )
 
-# define the aggregation functions to use when extracting from the rasters
+## define the aggregation functions to use when extracting from the rasters ----
 fcns <- list(
   # elevation
   elevation="mean",
@@ -85,10 +83,10 @@ fcns <- list(
   precipitation_driest="mean"
 )
 
+## extract values and join to occurrences ----
 extracted_values <- extract_buffered_chunks(occurrences_sf, raster_files, fcns,
                                             chunk_size=100000)
 
-# join up all the chunks into a single data frame
 labelled_occurrences <-
   occurrences_sf %>%
   st_drop_geometry() %>%

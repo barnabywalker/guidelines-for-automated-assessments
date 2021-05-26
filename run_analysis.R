@@ -1,13 +1,21 @@
-#' Run analysis for the paper "FILL IN PAPER NAME"
+#' Run analysis for the paper "Evidence-based guidelines for developing automated
+#'  conservation assessment methods".
 #' 
 #' This will:
-#' 1. download rasters (if needed) and process them to same resolution
-#' 2. load occurrence data and reconcile names to WCVP taxonomy
-#' 2. extract environmental and risk-related values at each occurrence
-#' 3. generate sets of occurrences at different levels of cleaning
-#' 4. summarise per-species predictor values for each of these sets
-#' 5. run automated assessment methods on these predictor sets
-#' 6. make the figures for this paper
+#' 1. download rasters (if needed) and process them to the desired resolution
+#' 2. collate lists of accepted species and their IUCN Red list assessments for
+#'    the 3 study groups (Myrica, legumes, orchids)
+#' 3. process occurrence data from GBIF and reconcile names to WCVP taxonomy
+#' 4. extract environmental and threat-related values at each occurrence record
+#' 5. generate sets of occurrences at different levels of cleaning
+#' 6. summarise per-species predictor values for each of these sets
+#' 7. run automated assessment methods on these predictor sets and evaluate their performance
+#' 8. calculate SHapely Addiditve exPlanations for some predictions
+#' 9. summarise the results for easier comparison and analysis
+#' 10. make the figures for the paper
+#' 11. make figures and tables for the supplementary materials
+#' 
+#' All scripts should load data from the `data` folder and save outputs to the `output` folder.
 #' 
 
 # libraries ----
@@ -81,7 +89,7 @@ for (set in datasets) {
   source(here("analysis/05_clean_occurrences.R"))
 }
 
-# just re-save the myrcia occurrences as it's own clean file
+# just re-save the myrcia database occurrences as it's own clean file
 occurrence_file <- here("output/myrcia-db_occurrences.csv")
 occurrences <- vroom(occurrence_file)
 occurrences %>%
@@ -89,13 +97,13 @@ occurrences %>%
   vroom_write(paste(output_dir, "myrcia_filter-1_clean-db.csv", sep="/"))
 
 # create cleaned files for all three groups together
-things <- expand.grid(filter=c(1,2,3,4), clean=c("A","B","C","D"),
-                      target=c("rl", "srli"))
-things <- split(things, 1:nrow(things))
+step_cmbns <- expand.grid(filter=c(1,2,3,4), clean=c("A","B","C","D"),
+                          target=c("rl", "srli"))
+step_cmbns <- split(step_cmbns, 1:nrow(step_cmbns))
 
-for (thing in things) {
-  in_pattern <- glue("[a-z]+_filter-{thing$filter}_clean-{thing$clean}.csv")
-  out_name <- glue("all_filter-{thing$filter}_clean-{thing$clean}.csv")
+for (cmbn in step_cmbns) {
+  in_pattern <- glue("[a-z]+_filter-{cmbn$filter}_clean-{cmbn$clean}.csv")
+  out_name <- glue("all_filter-{cmbn$filter}_clean-{cmbn$clean}.csv")
   occurrence_files <- list.files(here("output/cleaned_occurrences/"), 
                                  pattern=in_pattern,
                                  full.names=TRUE)
@@ -103,7 +111,7 @@ for (thing in things) {
   vroom_write(occurrences, here("output/cleaned_occurrences/", out_name))
 }
 
-# 5. prepare species-level predictors ----
+# 6. prepare species-level predictors ----
 
 output_dir <- here("output/predictors")
 dir.create(output_dir, showWarnings=FALSE)
@@ -114,7 +122,7 @@ for (set in datasets) {
   
   records_files <- list.files(
     here("output/cleaned_occurrences"),
-    pattern=glue::glue("{group}_"),
+    pattern=glue("{group}_"),
     full.names=TRUE
   )
   
@@ -139,9 +147,9 @@ for (set in datasets) {
 }
 
 # create predictor sets for all three groups together
-for (thing in things) {
-  in_pattern <- glue("[a-z]+_filter-{thing$filter}_clean-{thing$clean}_target-{thing$target}.csv")
-  out_name <- glue("all_filter-{thing$filter}_clean-{thing$clean}_target-{thing$target}.csv")
+for (cmbn in step_cmbns) {
+  in_pattern <- glue("[a-z]+_filter-{cmbn$filter}_clean-{cmbn$clean}_target-{cmbn$target}.csv")
+  out_name <- glue("all_filter-{cmbn$filter}_clean-{cmbn$clean}_target-{cmbn$target}.csv")
   occurrence_files <- list.files(here("output/predictors/"), 
                                  pattern=in_pattern,
                                  full.names=TRUE)
@@ -166,7 +174,7 @@ for (set in datasets) {
   
   predictor_files <- list.files(
     here("output/predictors"),
-    pattern=glue::glue("{group}_filter-\\d_clean-[A-Za-z]+_target-{target}"),
+    pattern=glue("{group}_filter-\\d_clean-[A-Za-z]+_target-{target}"),
     full.names=TRUE
   )
   
@@ -205,3 +213,9 @@ output_dir <- here("figures")
 dir.create(output_dir, showWarnings=FALSE)
 
 source(here("analysis/10_make_figures.R"))
+
+# 11. make figures and tables for supplementary ----
+output_dir <- here("figures")
+dir.create(output_dir, showWarnings=FALSE)
+
+source(here("analysis/11_supplementary_materials.R"))

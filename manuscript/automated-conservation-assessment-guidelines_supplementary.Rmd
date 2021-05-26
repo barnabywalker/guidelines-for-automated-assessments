@@ -85,7 +85,7 @@ predictor_table %>%
 ```
 
 ```{r accuracy-model-table, warning=FALSE, message=FALSE}
-d <- vroom(here("output/results/table-s1_accuracy-model-table.csv"))
+d <- vroom(here("output/figures/table-s1_accuracy-model-table.csv"))
 
 d %>%
   select("Group"="group", "Model"="model", "Term"="term",

@@ -17,17 +17,16 @@
 #' 
 
 # libraries ----
-library(here)
-library(dplyr)
-library(tidyr)
-library(vroom)
-library(readr)
-library(readxl)
-library(stringr)
-library(glue)
-library(purrr)
-library(kewr)
-library(progress)
+library(here)       # handle file paths
+library(dplyr)      # manipulate data
+library(tidyr)      # reshape data
+library(vroom)      # fast reading/writing for text files
+library(readxl)     # read excel files
+library(stringr)    # manipulate strings
+library(glue)       # string interpolation
+library(purrr)      # map functions across data
+library(kewr)       # access Kew's data APIs
+library(progress)   # make nice progress bars
 
 source(here("R/helper_functions.R"))
 
@@ -44,7 +43,9 @@ srli_legume_assessments <- read_excel(here("data/srli_assessed_legumes.xlsx"))
 # and Myrcia assessments that haven't been published yet
 ws_assessments <- vroom(here("data/myrcias_from_working_set.csv"))
 
-# match myrcia assessment names ----
+# myrcia names ----
+
+## get accepted species ----
 
 # genera in Myrcia s.l.
 genera <- c("Myrcia", "Gomidesia", "Mitranthes",
@@ -61,7 +62,7 @@ myrcia_accepted <-
   map_dfr(tidy) %>%
   select(id, name, author)
 
-# get Myrcia assessments from RL
+## get IUCN RL assessments ----
 myrcia_re <- "^(Myrcia|Calyptranthes|Gomidesia|Mitranthes|Marlierea|Mozartia) "
 
 myrcia_assessments <-
@@ -74,7 +75,7 @@ myrcia_assessments <-
   select(assessmentId, internalTaxonId, scientificName, 
          redlistCategory, redlistCriteria, assessmentDate)
 
-# process the assessments from the working set
+## get working set assessments ----
 ws_assessments <-
   ws_assessments %>%
   unite("scientificName", genus, species, sep=" ", remove=FALSE) %>%
@@ -89,7 +90,7 @@ myrcia_assessments <-
   mutate(source="rl") %>%
   bind_rows(ws_assessments)
 
-# match assessment names to WCVP
+## match names to WCVP ----
 matches <- match_knms(myrcia_assessments$scientificName)
 matches <- tidy(matches)
 matches <- resolve_multiple_matches(
@@ -147,7 +148,7 @@ myrcia_assessments <-
   filter(str_detect(submitted, "Myrcia") | n() == 1 | all(is.na(accepted_id))) %>%
   ungroup()
 
-# join assessments to all accepted names to get species list
+## join accepted names and assessments ----
 myrcia_list <-
   myrcia_accepted %>%
   left_join(
@@ -174,7 +175,9 @@ myrcia_list <-
 # save to file for analysis
 write_csv(myrcia_list, here("output/myrcia-rl_species-list.csv"))
 
-# match legume assessment names ----
+# legume names ----
+
+## get accepted species ----
 legumes_accepted <- search_wcvp(list(family="Fabaceae"),
                                 filters=c("accepted", "species"),
                                 limit=50000)
@@ -184,7 +187,7 @@ legumes_accepted <-
   tidy() %>%
   select(id, name, author)
 
-# get all legume assessments on the RL
+## get IUCN RL assessments ----
 legume_assessments <-
   rl_assessments %>%
   left_join(
@@ -198,7 +201,7 @@ legume_assessments <-
   select(assessmentId, internalTaxonId, scientificName, 
          full_name, redlistCategory, redlistCriteria, assessmentDate)
 
-# match assessments to WCVP with author included
+## match assessments to WCVP with author ----
 matches1 <- match_knms(legume_assessments$full_name)
 matches1 <- tidy(matches1)
 matches1 <- resolve_multiple_matches(
@@ -217,7 +220,7 @@ unmatched <-
 
 message(glue("Unable to match {nrow(unmatched)} names using KNMS with author strings"))
 
-# match again, without author string
+## match assessments to WCVP without author ----
 matches2 <- match_knms(unmatched$scientificName)
 matches2 <- tidy(matches2)
 matches2 <- resolve_multiple_matches(
@@ -284,7 +287,7 @@ write_csv(legume_assessments, here("output/name_matching/legume_assessments_resu
 # remove assessments for the same accepted name
 legume_assessments <- distinct(legume_assessments, accepted_id)
 
-# join assessments to all accepted names to get species list
+## join accepted names to assessments ----
 legume_list <-
   legumes_accepted %>%
   left_join(
@@ -312,16 +315,15 @@ legume_list <-
 write_csv(legume_list, here("output/legume-rl_species-list.csv"))
 
 # make the same but with just SRLI legume assessments
-
 legume_list %>%
   mutate(category=ifelse(! taxon_id %in% srli_legume_assessments$taxonid,
                          NA_character_,
                          category)) %>%
   write_csv(here("output/legume-srli_species-list.csv"))
 
-# match orchid assessment names ----
+# orchid names ----
 
-# get all accepted species in Orchidaceae
+## get accepted species ----
 orchids_accepted <- search_wcvp(list(family="Orchidaceae"),
                                 filters=c("accepted", "species"),
                                 limit=50000)
@@ -330,6 +332,7 @@ orchids_accepted <-
   tidy() %>%
   select(id, name, author)
 
+## get IUCN RL assessments ----
 orchid_assessments <-
   rl_assessments %>%
   left_join(
@@ -340,7 +343,7 @@ orchid_assessments <-
   filter(criteriaVersion == 3.1) %>%
   select(assessmentId, internalTaxonId, scientificName, redlistCategory, redlistCriteria, assessmentDate)
 
-# match the assessment names to the WCVP names
+## match names to the WCVP ----
 matches <- match_knms(orchid_assessments$scientificName)
 matches <- tidy(matches)
 matches <- resolve_multiple_matches(
@@ -391,7 +394,7 @@ orchid_assessments <-
 # save the whole matching results
 write_csv(orchid_assessments, here("output/name_matching/orchid_assessments_results.csv"))
 
-# join assessments to all accepted names to get species list
+## join accepted names and assessments ----
 orchid_list <-
   orchids_accepted %>%
   left_join(
@@ -419,7 +422,7 @@ orchid_list <-
 write_csv(orchid_list, here("output/orchid-rl_species-list.csv"))
 
 # download distributions ----
-
+## myrcia ----
 myrcia_distribution <-
   myrcia_list %>%
   select(id, name) %>%
@@ -428,6 +431,7 @@ myrcia_distribution <-
 
 write_csv(myrcia_distribution, here("output/myrcia_distributions.csv"))
 
+## legumes ----
 legume_distribution <-
   legume_list %>%
   select(id, name) %>%
@@ -436,6 +440,7 @@ legume_distribution <-
 
 write_csv(legume_distribution, here("output/legume_distributions.csv"))
 
+## orchids ----
 orchids_distribution <-
   orchid_list %>%
   select(id, name) %>%

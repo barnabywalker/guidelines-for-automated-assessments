@@ -1,23 +1,29 @@
-#' Make figures for manuscript.
+#' Script to make all figures for manuscript.
+#' 
+#' All figures are saved as SVG. I used inkscape to convert them to PNG or PDF at 600 dpi.
+#' 
+#' EXPECTED INPUTS:
+#'  - `output_dir`: path to a directory to save figures in (must exist)
 #' 
 
 # libraries ----
-library(here)
-library(vroom)
-library(dplyr)
-library(readr)
-library(tidyr)
-library(ggplot2)
-library(stringr)
-library(glue)
-library(scales)
-library(ggforce)
-library(ggridges)
-library(patchwork)
+library(here)       # handle file paths
+library(vroom)      # fast reading/writing for text files
+library(dplyr)      # manipulate data
+library(readr)      # read/write text and data files
+library(tidyr)      # reshape data
+library(ggplot2)    # plotting
+library(stringr)    # manipulate strings
+library(glue)       # string interpolation
+library(scales)     # nice scales for ggplot
+library(ggforce)    # helps to make a swarm plot
+library(ggridges)   # helps to make stacked histogram plots
+library(patchwork)  # joins ggplots together nicely
 
 source(here("R/plotting_functions.R"))
 
-# themes ----
+# global settings ----
+## themes ----
 theme_grid <- function(...) {
   theme_bw() +
   theme(
@@ -31,7 +37,7 @@ theme_grid <- function(...) {
   )
 }
 
-# names ----
+## names ----
 group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
 group_names_small <- c("Myrcia", "Orchids", "Legumes")
 
@@ -60,8 +66,9 @@ units <- c(
   "Forest loss"=NA_character_
 )
 
+filter_labeller <- function(string) paste0("Filter step ", string)
 
-# colours ----
+## colours ----
 downsample_colours <- c(
   "no downsampling"="#ffd700",
   "downsampling"="#0000ff"
@@ -84,35 +91,40 @@ target_colours <- c(
 )
 
 # load data ----
-# data summary statistics
+## data summary statistics ----
 processing_stats <- vroom(here("output/results/processing_stats.csv"))
 occurrence_stats <- vroom(here("output/results/occurrence_stats.csv"))
 species_list_stats <- vroom(here("output/results/species_list_stats.csv"))
 
-# method performance
+## method performance ----
 performance <- vroom(here("output/results/performance.csv"))
 group_performance <- vroom(here("output/results/groupwise_performance.csv"))
 
-# predictions of threat
+## predictions of threat ----
 predicted_threat <- vroom(here("output/results/predictions.csv"))
 group_predictions <- vroom(here("output/results/groupwise_predictions.csv"))
 
-# learning curves
+## learning curves ----
 learning_curves <- vroom(here("output/results/learning_curves_n.csv"))
 
-# decision stump boundaries
+## decision stump boundaries ----
 stump_splits <- vroom(here("output/results/decision_stump_splits.csv"))
 
-# SHAP values
+## SHAPs ----
 shap_values <- vroom(here("output/results/random_forest_explanation_examples.csv"))
 orchid_predictions <- vroom(here("output/results/orchid_test_predictions.csv"))
 orchid_list <- vroom(here("output/orchid-rl_species-list.csv"))
 
-# decision tree example
+## decision tree example ----
 tree <- read_rds(here("output/results/decision_tree_example.rds"))
 
 # 1. data cleaning stats ----
-filter_labeller <- function(string) paste0("Filter step ", string)
+# small multiples of bar charts, with a row for each species group
+# and a column for each filter step. coordinate cleaning step along the
+# x-axis, and number of species on the y-axis. the bars are stacked
+# with the darkest colour at the bottom for species with non-DD assessments,
+# the next colour for species without non-DD assessments, and greyed-out on
+# top for species without any occurrence records.
 
 species_coverage <-
   processing_stats %>%
@@ -146,17 +158,21 @@ species_coverage <-
     panel.grid.major.y=element_line(linetype=3, colour="grey80")
   )
 
-ggsave(here("figures/figure-1_cleaning-species-coverage.svg"),
+ggsave(paste(output_dir, "figure-1_cleaning-species-coverage.svg", sep="/"),
        species_coverage,
        height=5, width=7)
 
 # 2. performance grid ----
+# small multiples of heatmaps, a row for each species group,
+# a column for each model, cleaning step on the x-axis, 
+# filter step on the y-axis, and the intensity of colour
+# representing the TSS.
+
 performance_grid <-
   performance %>%
   filter(downsample == "no",
          target == "IUCN RL",
          .metric == "TSS",
-         model != "Logistic regression",
          group != "All") %>%
   mutate(group=factor(group, levels=group_names_small, ordered=TRUE),
          model=factor(model, levels=model_names, ordered=TRUE)) %>%
@@ -185,13 +201,22 @@ ggsave(paste(output_dir, "figure-2_performance-grid.svg", sep="/"),
        performance_grid, height=7, width=7)
 
 # 3. sample choice exploration ----
+# three subplots:
+# - small multiples with a column for each model comparing
+#   learning curves for models trained on the SRLI legumes
+#   to learning curves for models trained on all IUCN RL legumes
+# - small multiples with a column for each evaluation metric
+#   comparing the effect of downsampling to no downsampling
+#   on the SRLI legume dataset
+# - small multiples with a column for each model comparing the
+#   performance on each species group when the model is trained
+#   only on that group to when it is trained on all groups combined.
 
 ## legume learning curves
 learning_comparison <-
   learning_curves %>%
   filter(group == "Legumes",
          downsample == "yes",
-         model != "Logistic regression",
          filter == 1,
          clean == "A",
          .metric == "TSS") %>%
@@ -216,8 +241,7 @@ downsample_srli_comparison <-
   filter(group == "Legumes",
          target == "SRLI",
          filter == 1,
-         clean == "A",
-         model != "Logistic regression") %>%
+         clean == "A") %>%
   mutate(model=factor(model, levels=model_names, ordered=TRUE),
          downsample=recode(downsample, !!! downsample_names)) %>%
   ggplot(mapping=aes(x=model, y=.value, ymin=.lower, ymax=.upper)) +
@@ -238,7 +262,6 @@ group_prediction_comparison <-
     predicted_threat %>% mutate(type="individual")
   ) %>%
   filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
-         model != "Logistic regression",
          group != "All",
          filter == 1,
          clean == "A",
@@ -266,11 +289,22 @@ sample_choice_plot <-
   theme(legend.position="right",
         panel.spacing.x=unit(1, "lines")) 
 
-ggsave(paste0(output_dir, "/figure-3_sample-choice_comparison.svg"),
+ggsave(paste(output_dir, "figure-3_sample-choice_comparison.svg", sep="/"),
        sample_choice_plot,
        height=5, width=10)
 
 # 4. explanations comparison ----
+# five subplots demonstrating ways of interpreting machine-learning AA methods:
+# - histograms of EOO for species assessed as threatened and not treatened with
+#   the decision boundary learned by the decision stump model overlaid as a 
+#   dashed line, with the 95 % CI shaded.
+# - a flow chart learned by a decision tree model
+# - a bar chart of predictor importance calculate from the mean absolute SHAP for each predictor
+# - a swarm chart (partial dependence plot) showing the contribution of each predictor to each prediction, with the colour
+#   of each point indicating the relative value of that predictor for a specific species.
+# - a waterfall chart (force plot) showing the contribution of each predictor for an individual species,
+#   and how those contributions move the predicted probability of being threatened.
+
 # sample things the orchid model got wrong
 wrong_orchids <- 
   orchid_predictions %>%
@@ -298,8 +332,10 @@ shap_importance <-
   labs(x="Mean |SHAP|", y="") +
   theme_grid()
   
-
 ### partial dependence plot (global) ----
+
+# utility to scale predictor values between their overall min and max
+# has the option to log for predictors with a very large scale
 scale_values <- function(values, log=FALSE) {
   if (log) {
     values <- log10(values + 1)
@@ -546,5 +582,5 @@ explanation_plots <-
   (stump_plot + decision_tree) / shap_plots +
   plot_annotation(tag_levels="A")
 
-ggsave(here("figures/figure-4_explanations.svg"),
+ggsave(paste(output_dir, "figure-4_explanations.svg", sep="/"),
        explanation_plots, height=7, width=11)

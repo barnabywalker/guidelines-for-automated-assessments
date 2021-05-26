@@ -23,16 +23,20 @@
 #' 
 #' This script saves a new file for each step.
 #' 
+#' EXPECTED INPUTS:
+#'  - `occurrence_file`: path to a file with occurrences to be cleaned
+#'  - `distribution_file`: path to file containing distributions for species in the occurrence file
+#'  - `output_dir`: path to a directory to save in (which must exist)
 
 # libraries ----
-library(here)
-library(dplyr)
-library(vroom)
-library(glue)
-library(CoordinateCleaner)
-library(sf)
+library(here)               # handle file paths
+library(dplyr)              # manipulate data
+library(vroom)              # fast reading/writing for text files
+library(glue)               # string interpolation
+library(CoordinateCleaner)  # utilities for cleaning occurrence coordinates
+library(sf)                 # handle spatial data
 
-# load occurrence file ----
+# load data ----
 output_cols <- c("specimen_id", "wcvp_name", "wcvp_id")
 occurrences <- vroom(occurrence_file)
 
@@ -43,28 +47,31 @@ wgsrpd3 <- st_read(here("data/wgsrpd/level3/level3.shp"))
 for (step in 1:4) {
   filtered <- as_tibble(occurrences)
   
+  # applies to steps 2 and 4 (only keep specimens)
   if (step %% 2 == 0) {
     filtered <- 
       filtered %>%
       filter(basisOfRecord %in% "PRESERVED_SPECIMEN")
   }
   
+  # applies to steps 3 and 4 (remove duplicates)
   if (step > 2) {
     filtered <- 
       filtered %>%
       distinct(wcvp_id, decimalLongitude, decimalLatitude, .keep_all=TRUE)
   }
   
+  ## cleaning step A ----
   cleaned <- 
     filtered %>%
     filter(hasCoordinate, ! hasGeospatialIssue)
   
-  # save cleaning step A
   output_path <- glue(output_dir, "/{group}_filter-{step}_clean-A.csv")
   cleaned %>%
     select(all_of(output_cols)) %>%
     vroom_write(output_path)
   
+  ## cleaning step B ----
   cleaned <-
     cleaned %>%
     cc_zero(
@@ -74,12 +81,12 @@ for (step in 1:4) {
       value="clean"
     )
   
-  # save cleaning step B
   output_path <- glue(output_dir, "/{group}_filter-{step}_clean-B.csv")
   cleaned %>%
     select(all_of(output_cols)) %>%
     vroom_write(output_path)
   
+  ## cleaning step C ----
   cleaned <- 
     cleaned %>%
     cc_equ(
@@ -101,13 +108,12 @@ for (step in 1:4) {
       tests=c("capitals", "institutions", "gbif", "centroids"),
       value="clean")
   
-  # save cleaning step C
   output_path <- glue(output_dir, "/{group}_filter-{step}_clean-C.csv")
   cleaned %>%
     select(all_of(output_cols)) %>%
     vroom_write(output_path)
   
-  # TODO: CHECK THIS!!!
+  ## cleaning step D ----
   cleaned <-
     cleaned %>%
     st_as_sf(coords=c("decimalLongitude", "decimalLatitude"), 
@@ -122,7 +128,6 @@ for (step in 1:4) {
     st_drop_geometry() %>%
     distinct(specimen_id, .keep_all=TRUE)
   
-  # save cleaning step C
   output_path <- glue(output_dir, "/{group}_filter-{step}_clean-D.csv")
   cleaned %>%
     select(all_of(output_cols)) %>%

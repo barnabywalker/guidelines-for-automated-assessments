@@ -1,25 +1,29 @@
-#' Make figures for supplementary materials
+#' Make figures and tables for supplementary materials.
+#' 
+#' All figures are saved as SVG. I used inkscape to convert them to PNG or PDF at 600 dpi.
+#' Tables have been made by just selecting the right data and saving to a text file. All
+#' table formatting is done in the manuscript.
+#' 
+#' EXPECTED INPUTS:
+#'  - `output_dir`: path to a directory to save figures in (must exist)
 #' 
 
 # libraries ----
-library(here)
-library(vroom)
-library(dplyr)
-library(readr)
-library(tidyr)
-library(ggplot2)
-library(stringr)
-library(sf)
-library(glue)
-library(scales)
-library(ggforce)
-library(ggridges)
-library(patchwork)
+library(here)       # handle file paths
+library(vroom)      # fast reading/writing for text data
+library(dplyr)      # manipulate data
+library(readr)      # read/write text and data files
+library(tidyr)      # reshape data
+library(ggplot2)    # plotting
+library(stringr)    # manipulate strings
+library(glue)       # string interpolation
+library(scales)     # nice scales for ggplot
+library(patchwork)  # joins ggplots together
 
 source(here("R/plotting_functions.R"))
 
-# load data ----
-# themes ----
+# global settings ----
+## themes ----
 theme_grid <- function(...) {
   theme_bw() +
     theme(
@@ -33,7 +37,7 @@ theme_grid <- function(...) {
     )
 }
 
-# names ----
+## names ----
 group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
 group_names_small <- c("Myrcia", "Orchids", "Legumes")
 
@@ -61,8 +65,9 @@ units <- c(
   "Forest loss"=NA_character_
 )
 
+filter_labeller <- function(string) paste0("Filter step ", string)
 
-# colours ----
+## colours ----
 downsample_colours <- c(
   "no downsampling"="#ffd700",
   "downsampling"="#0000ff"
@@ -106,15 +111,12 @@ importance <- vroom(here("output/results/random_forest_permutation_importance.cs
 accuracy_models <- vroom(here("output/results/specimen_accuracy_models.csv"))
 accuracy_points <- vroom(here("output/results/accuracy_points.csv"))
 
-# S1. performance ----
-filter_labeller <- function(string) paste0("Filter step ", string)
-
+# S1. tss compared for all groups, models, cleaning steps ----
 tss_comparison <-
   performance %>%
   filter(downsample == "yes" & target == "SRLI" | downsample == "no" & target == "IUCN RL",
          .metric == "TSS",
-         group != "All",
-         model != "Logistic regression") %>%
+         group != "All") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
@@ -143,11 +145,10 @@ tss_comparison <-
     legend.position="bottom"
   )
 
-ggsave(here("figures/figure-s1_tss-comparison.svg"),
+ggsave(paste(output_dir, "figure-s1_tss-comparison.svg", sep="/"),
        tss_comparison, height=5, width=7)
 
-# S2. cleaning effects ----
-
+# S2. change in mean and median EOO and record number with cleaning steps ----
 eoo_cleaning <-
   processing_stats %>%
   select(group, target, filter, clean, eoo_median, eoo_mean) %>%
@@ -191,16 +192,15 @@ cleaning_comparison <-
   plot_annotation(tag_levels="A") &
   theme(legend.position="bottom")
 
-ggsave(here("figures/figure-s2_cleaning-comparison.svg"),
+ggsave(paste(output_dir, "figure-s2_cleaning-comparison.svg", sep="/"),
        cleaning_comparison, height=10, width=7)
 
-# S3. downsampling comparison ----
+# S3. effect of downsampling on all metrics compared across groups, models ----
 downsample_comparison <-
   performance %>%
   filter(filter == 1,
          clean == "A",
-         group != "All",
-         model != "Logistic regression") %>%
+         group != "All") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
@@ -217,10 +217,10 @@ downsample_comparison <-
   theme_grid() +
   theme(panel.spacing.x=unit(1, "lines"))
 
-ggsave(here("figures/figure-s3_downsampling-comparison.svg"),
+ggsave(paste(output_dir, "figure-s3_downsampling-comparison.svg", sep="/"),
        downsample_comparison, height=5, width=7)
 
-# S4. groupwise performance comparison ----
+# S4. effect of training on all groups combined compared to individually on all metrics, across groups, models ----
 groupwise_comparison <-
   group_performance %>%
   mutate(type="combined") %>%
@@ -228,7 +228,6 @@ groupwise_comparison <-
     performance %>% mutate(type="individual")
   ) %>%
   filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
-         model != "Logistic regression",
          group != "All",
          filter == 1,
          clean == "A",
@@ -248,16 +247,15 @@ groupwise_comparison <-
   theme_grid() +
   theme(panel.spacing.x=unit(1, "lines"))
 
-ggsave(here("figures/figure-s4_group-comparison.svg"),
+ggsave(paste(output_dir, "figure-s4_group-comparison.svg", sep="/"),
        groupwise_comparison, height=4, width=7)
 
-# S5. performance comparison breakdown ----
+# S5. comparison of non-tss performance across groups, models, cleaning steps ----
 accuracy_comparison <-
   performance %>%
   filter(downsample == "yes" & target == "SRLI" | downsample == "no" & target == "IUCN RL",
          .metric == "Accuracy",
-         group != "All",
-         model != "Logistic regression") %>%
+         group != "All") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
@@ -360,13 +358,14 @@ detailed_performance_comparison <-
   plot_layout(guides="collect") &
   theme(legend.position="bottom")
 
-ggsave(here("figures/figure-s5_detailed-performance-comparison.svg"),
+ggsave(paste(output_dir, "figure-s5_detailed-performance-comparison.svg", sep="/"),
        detailed_performance_comparison, height=12, width=7)
 
-# fig S6. accuracy models ----
+# S6. logistic regression of accuracy against number of specimens for each model, group ----
 newpoints <- tibble(log10_n_specimens=seq(0,6,by=0.01))
 newpoints$n_specimens <- 10 ^ newpoints$log10_n_specimens
 
+# utility to get fitted probability from logistic model for new data
 f <- function(intercept, slope, newdata) {
   newdata %>%
     mutate(prob=intercept + slope * log10_n_specimens) %>%
@@ -412,7 +411,7 @@ accuracy_model_comparison <-
   theme_grid() +
   theme(panel.grid.major.y=element_line(colour="grey80", linetype=3))
 
-ggsave(here("figures/figure-s6_accuracy-model-comparison.svg"),
+ggsave(paste(output_dir, "figure-s6_accuracy-model-comparison.svg", sep="/"),
        accuracy_model_comparison, height=5, width=7)
 
 # S7. random forest permutation feature importance ----
@@ -435,10 +434,10 @@ permutation_importances <-
   labs(x="Mean decrease in accuracy", y="") +
   theme_grid()
 
-ggsave(here("figures/figure-s7_rf-permutation-importance.svg"),
+ggsave(paste(output_dir, "figure-s7_rf-permutation-importance.svg", sep="/"),
        permutation_importances, height=4, width=7)
 
-# Table S1. accuracy model coefficients ----
+# Table S2. logistic regression of accuracy against number of occurrences model coefficients ----
 accuracy_model_table <-
   accuracy_models %>%
   mutate(estimate=exp(estimate)) %>%
@@ -458,4 +457,6 @@ accuracy_model_table <-
          term=recode(term, "(Intercept)"="intercept", "log10(n_specimens)"="slope")) %>%
   arrange(model)
 
-vroom_write(accuracy_model_table, here("output/results/table-s1_accuracy-model-table.csv"), delim=",")
+vroom_write(accuracy_model_table, 
+            paste(output_dir, "table-s1_accuracy-model-table.csv", sep="/"), 
+            delim=",")
