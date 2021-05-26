@@ -30,8 +30,8 @@ labelled$obs <- factor(labelled$obs, levels=c("threatened", "not threatened"))
 # `j_index` is Youden J index, mathematically the same as TSS
 eval_metrics <- metric_set(accuracy, sens, spec, j_index)
 
-# define fractions for learning curves ----
-fracs <- seq(from=0.5, to=1, by=0.05)
+# define sample sizes for learning curves ----
+breaks <- seq(from=50, to=175, by=25)
 
 # eoo threshold method ----
 # make bootstraps
@@ -136,7 +136,7 @@ log_predictions <-
 # make the learning curve
 log_learning <-
   splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(log_wf, .x, fracs))) %>%
+  mutate(.learning=future_map(splits, ~make_learning_curve(log_wf, .x, n=breaks))) %>%
   select(id, id2, .learning) %>%
   unnest(cols=c(.learning))
 
@@ -155,7 +155,7 @@ write_rds(log_results, glue("{model_dir}/{output_name}_model-logistic.rds"))
 write_csv(log_performance, glue("{output_dir}/{output_name}_model-logistic_performance.csv"))
 write_csv(log_test_predictions, glue("{output_dir}/{output_name}_model-logistic_test-predictions.csv"))
 write_csv(log_predictions, glue("{output_dir}/{output_name}_model-logistic_predictions.csv"))
-write_csv(log_learning, glue("{output_dir}/{output_name}_model-logistic_learning-curve.csv"))
+write_csv(log_learning, glue("{output_dir}/{output_name}_model-logistic_learning-curves-n.csv"))
 write_csv(log_accuracy_models, glue("{output_dir}/{output_name}_model-logistic_accuracy-models.csv"))
 
 # simple decision tree (stump) ----
@@ -217,7 +217,7 @@ stump_predictions <-
 # make the learning curve
 stump_learning <-
   splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(stump_wf, .x, fracs))) %>%
+  mutate(.learning=future_map(splits, ~make_learning_curve(stump_wf, .x, n=breaks))) %>%
   select(id, id2, .learning) %>%
   unnest(cols=c(.learning))
 
@@ -236,7 +236,7 @@ write_rds(stump_results, glue("{model_dir}/{output_name}_model-stump.rds"))
 write_csv(stump_performance, glue("{output_dir}/{output_name}_model-stump_performance.csv"))
 write_csv(stump_test_predictions, glue("{output_dir}/{output_name}_model-stump_test-predictions.csv"))
 write_csv(stump_predictions, glue("{output_dir}/{output_name}_model-stump_predictions.csv"))
-write_csv(stump_learning, glue("{output_dir}/{output_name}_model-stump_learning-curve.csv"))
+write_csv(stump_learning, glue("{output_dir}/{output_name}_model-stump_learning-curves-n.csv"))
 write_csv(stump_accuracy_models, glue("{output_dir}/{output_name}_model-stump_accuracy-models.csv"))
 
 # simple decision tree (stump) ----
@@ -300,7 +300,7 @@ dt_predictions <-
 # make the learning curve
 dt_learning <-
   splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(dt_wf, .x, fracs))) %>%
+  mutate(.learning=future_map(splits, ~make_learning_curve(dt_wf, .x, n=breaks))) %>%
   select(id, id2, .learning) %>%
   unnest(cols=c(.learning))
 
@@ -319,7 +319,7 @@ write_rds(dt_results, glue("{model_dir}/{output_name}_model-dt.rds"))
 write_csv(dt_performance, glue("{output_dir}/{output_name}_model-dt_performance.csv"))
 write_csv(dt_test_predictions, glue("{output_dir}/{output_name}_model-dt_test-predictions.csv"))
 write_csv(dt_predictions, glue("{output_dir}/{output_name}_model-dt_predictions.csv"))
-write_csv(dt_learning, glue("{output_dir}/{output_name}_model-dt_learning-curve.csv"))
+write_csv(dt_learning, glue("{output_dir}/{output_name}_model-dt_learning-curves-n.csv"))
 write_csv(dt_accuracy_models, glue("{output_dir}/{output_name}_model-dt_accuracy-models.csv"))
 
 
@@ -404,7 +404,7 @@ rf_valid_importance <-
 # make the learning curve
 rf_learning <-
   splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(rf_wf, .x, fracs))) %>%
+  mutate(.learning=future_map(splits, ~make_learning_curve(rf_wf, .x, n=breaks))) %>%
   select(id, id2, .learning) %>%
   unnest(cols=c(.learning))
 
@@ -425,5 +425,5 @@ write_csv(rf_test_predictions, glue("{output_dir}/{output_name}_model-rf_test-pr
 write_csv(rf_predictions, glue("{output_dir}/{output_name}_model-rf_predictions.csv"))
 write_csv(rf_importance, glue("{output_dir}/{output_name}_model-rf_importance.csv"))
 write_csv(rf_valid_importance, glue("{output_dir}/{output_name}_model-rf_valid-importance.csv"))
-write_csv(rf_learning, glue("{output_dir}/{output_name}_model-rf_learning-curve.csv"))
+write_csv(rf_learning, glue("{output_dir}/{output_name}_model-rf_learning-curves-n.csv"))
 write_csv(rf_accuracy_models, glue("{output_dir}/{output_name}_model-rf_accuracy-models.csv"))
