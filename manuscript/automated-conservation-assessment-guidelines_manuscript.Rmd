@@ -1,5 +1,5 @@
 ---
-title: "Evidence-based guidelines for developing automated assessment methods"
+title: "Evidence-based guidelines for developing automated conservation assessment methods"
 author:
   - Barnaby E. Walker^[Royal Botanic Gardens, Kew, UK, b.walker@kew.org], Tarciso C.C. Leão^[Royal Botanic Gardens, Kew, UK], Steven P. Bachman^[Royal Botanic Gardens, Kew, UK], Eve Lucas^[Royal Botanic Gardens, Kew, UK], Eimear Nic Lughadha^[Royal Botanic Gardens, Kew, UK]
 

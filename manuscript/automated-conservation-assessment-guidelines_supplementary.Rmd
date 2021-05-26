@@ -1,5 +1,5 @@
 ---
-title: "Evidence-based guidelines for developing automated assessment methods"
+title: "Evidence-based guidelines for developing automated conservation assessment methods"
 subtitle: "Supplementary materials"
 author:
   - Barnaby E. Walker^[Royal Botanic Gardens, Kew, UK, b.walker@kew.org], Tarciso C.C. Leão^[Royal Botanic Gardens, Kew, UK], Steven P. Bachman^[Royal Botanic Gardens, Kew, UK], Eve Lucas^[Royal Botanic Gardens, Kew, UK], Eimear Nic Lughadha^[Royal Botanic Gardens, Kew, UK]
@@ -70,14 +70,14 @@ knitr::include_graphics("../figures/figure-s7_rf-permutation-importance.png")
 predictor_table <-
   tribble(
     ~Predictor, ~`Used in`, ~Calculation, ~Source,
-    "Extent of occurrence (EOO)", "IUCN-threshold, logistic regression, random forest", "Minimum convex polygon", "-",
-    "Latitude of range centroid", "random forest", "Centroid of occurrence records", "-",
-    "Minimum human population density (HPD)", "random forest", "Minimum value", "Raster from [@University2018]",
-    "Human footprint index (HFI)", "random forest", "Mean value", "Raster from [@Venter2018]",
-    "Forest loss", "random forest", "Mean of proportion of pixels with forest loss from 5km$^2$ buffer around occurrence records", "Raster from [@Hansen2013]",
-    "Elevation", "random forest", "Maximum value", "Raster from [@Jarvis2008]",
-    "Precipitation in the driest quarter", "random forest", "Mean value", "Raster from [@Fick2017]",
-    "Average annual temperature", "random forest", "Mean value", "Raster from [@Fick2017]"
+    "Extent of occurrence (EOO)", "IUCN-threshold, decision stump, decision tree, random forest", "Minimum convex polygon", "-",
+    "Latitude of range centroid", "decision tree, random forest", "Centroid of occurrence records", "-",
+    "Minimum human population density (HPD)", "decision tree, random forest", "Minimum value", "Raster from [@University2018]",
+    "Human footprint index (HFI)", "decision tree, random forest", "Mean value", "Raster from [@Venter2018]",
+    "Forest loss", "decision tree, random forest", "Mean of proportion of pixels with forest loss from 5km$^2$ buffer around occurrence records", "Raster from [@Hansen2013]",
+    "Elevation", "decision tree, random forest", "Maximum value", "Raster from [@Jarvis2008]",
+    "Precipitation in the driest quarter", "decision tree, random forest", "Mean value", "Raster from [@Fick2017]",
+    "Average annual temperature", "decision tree, random forest", "Mean value", "Raster from [@Fick2017]"
   )
 
 predictor_table %>%

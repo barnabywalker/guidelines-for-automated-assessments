@@ -4,5 +4,6 @@ data/
 *.zip
 output/
 *.docx
+*.pdf
 manuscript/papers/
 packages.bib

@@ -222,8 +222,7 @@ sens_comparison <-
   performance %>%
   filter(downsample == "yes" & target == "SRLI" | downsample == "no" & target == "IUCN RL",
          .metric == "Sensitivity",
-         group != "All",
-         model != "Logistic regression") %>%
+         group != "All") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
@@ -256,8 +255,7 @@ spec_comparison <-
   performance %>%
   filter(downsample == "yes" & target == "SRLI" | downsample == "no" & target == "IUCN RL",
          .metric == "Specificity",
-         group != "All",
-         model != "Logistic regression") %>%
+         group != "All") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
@@ -320,7 +318,6 @@ accuracy_points <-
 accuracy_model_comparison <-
   accuracy_lines %>%
   filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
-         model != "Logistic regression",
          filter == 1,
          clean == "A",
          group != "All",
@@ -374,7 +371,6 @@ accuracy_model_table <-
             .upper=quantile(estimate, 0.975),
             .groups="drop") %>%
   filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
-         model != "Logistic regression",
          filter == 1,
          clean == "A",
          group != "All",
