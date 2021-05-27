@@ -23,8 +23,8 @@ The data sources are:
 
 Some data sources have not been published yet, and so have not been included in the data archive. These are:
 * Occurrence records from the database prepared for a monographic treatment of *Myrcia*, which has not been published yet.
-* Unpublished assessments for species in the genus *Myrcia*, which may change category during review.
-* The list of legume species assessed as part of the Sampled Red List Index.
+* Unpublished assessments for species in the genus *Myrcia*, which may change category during review, but will eventually be published on the IUCN Red List.
+* The list of legume species assessed as part of the Sampled Red List Index. The species included in the Sampled Red List Index is updated frequently and the latest version can be requested from the IUCN.
 
 While the scripts processing these data sources will not run, outputs from these scripts are preserved in the data archive.
 
