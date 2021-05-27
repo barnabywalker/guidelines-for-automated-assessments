@@ -70,7 +70,7 @@ We obtained checklists of accepted species for all three groups from the World C
 
 ### Species assessments
 
-We downloaded published assessments for the three species groups from the IUCN Red List of Threatened Species ([@IUCN2021]; hereafter Red List) and matched their names to WCVP taxonomy using the Kew Names Matching Service (KNMS). We chose KNMS over other taxon name resolution tools because it provides a simple interface for directly matching names to WCVP. We manually resolved unmatched names and updated accepted names of assessments matched to homotypic synonyms. We removed all assessments matched to non-homotypic synonyms, as the assessment might not apply to the new species concept. We also removed unmatchable assessments or those that matched species outside our accepted species lists.
+We downloaded published assessments for the three species groups from the IUCN Red List of Threatened Species ([@IUCN2021]; hereafter Red List) and supplemented the Myrcia data set with 23 as yet unpublished assessments carried out by Kew’s Plant Assessment Unit. We matched assessment names to WCVP taxonomy using the Kew Names Matching Service (KNMS). We chose KNMS over other taxon name resolution tools because it provides a simple interface for directly matching names to WCVP. We manually resolved unmatched names and updated accepted names of assessments matched to homotypic synonyms. We removed all assessments matched to non-homotypic synonyms, as the assessment might not apply to the new species concept. We also removed unmatchable assessments or those that matched species outside our accepted species lists.
 
 ### Occurrence records
 
@@ -312,12 +312,14 @@ By following this study's recommendations and tackling these challenges, conserv
 
 # Acknowledgments
 
+All authors would like to acknowledge the hard work and dedication of Kew's Plant Assessment Unit team who, in collaboration with regional and taxon specialists at Kew and worldwide, assessed the extinction risk of many of the orchid and legume species and most of the Myrcia species included in our study. The Plant Assessment Unit was established through collaboration between IUCN and the Royal Botanic Gardens Kew within the project entitled ‘The IUCN Red List of Threatened Species and Toyota Motor Corporation’.
+
 # Author contributions
 
 BW, TL, SP, EL, and EN all conceived of the article, contributed to the study design, and contributed to the writing. BW carried out the analysis, prepared the figures, and prepared the first draft. EL provided data from the monographic database of *Myrcia* specimens.
 
 # Data availability
 
-The data and code used for this study will be archived in Zenodo upon acceptance.
+The data and code used for this study will be archived in Zenodo upon submission.
 
 # References
