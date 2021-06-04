@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/347164961.svg)](https://zenodo.org/badge/latestdoi/347164961)
+
 # Evidence-based guidelines for developing automated conservation assessment methods
 
 This is the R code used to perform the analysis described in the paper *Evidence-based guidelines for developing automated conservation assessment methods*. This includes functions and scripts used to gather data and perform the analysis, summarise the results, plot figures for the paper, and write the paper. Some manual reformatting was done on the paper after compiling it, so running the manuscript files will not reproduce the paper exactly. 
