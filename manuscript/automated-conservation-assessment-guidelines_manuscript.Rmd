@@ -320,6 +320,6 @@ BW, TL, SP, EL, and EN all conceived of the article, contributed to the study de
 
 # Data availability
 
-The data and code used for this study will be archived in Zenodo upon submission.
+The code used for the analysis in this study is archived on Zenodo, at https://doi.org/10.5281/zenodo.4900044. All analysis outputs are archived on Zenodo, at https://doi.org/10.5281/zenodo.4899925.
 
 # References
