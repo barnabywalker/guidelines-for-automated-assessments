@@ -1,6 +1,10 @@
+[![DOI](https://zenodo.org/badge/347164961.svg)](https://zenodo.org/badge/latestdoi/347164961)
+
 # Evidence-based guidelines for developing automated conservation assessment methods
 
 This is the R code used to perform the analysis described in the paper *Evidence-based guidelines for developing automated conservation assessment methods*. This includes functions and scripts used to gather data and perform the analysis, summarise the results, plot figures for the paper, and write the paper. Some manual reformatting was done on the paper after compiling it, so running the manuscript files will not reproduce the paper exactly. 
+
+The outputs of these scripts are archived on Zenodo, at https://doi.org/10.5281/zenodo.4899925.
 
 ## Running the scripts
 
@@ -23,10 +27,10 @@ The data sources are:
 
 Some data sources have not been published yet, and so have not been included in the data archive. These are:
 * Occurrence records from the database prepared for a monographic treatment of *Myrcia*, which has not been published yet.
-* Unpublished assessments for species in the genus *Myrcia*, which may change category during review.
-* The list of legume species assessed as part of the Sampled Red List Index.
+* Unpublished assessments for species in the genus *Myrcia*, which may change category during review, but will eventually be published on the IUCN Red List.
+* The list of legume species assessed as part of the Sampled Red List Index. The species included in the Sampled Red List Index is updated frequently and the latest version can be requested from the IUCN.
 
-While the scripts processing these data sources will not run, outputs from these scripts are preserved in the data archive.
+While the scripts processing these data sources will not run, outputs from these scripts are archived on Zenodo, at https://doi.org/10.5281/zenodo.4899925.
 
 ### Downloading the archived data
 
