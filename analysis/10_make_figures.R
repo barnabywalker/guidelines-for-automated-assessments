@@ -50,7 +50,45 @@ orchid_list <- vroom(here("output/orchid-rl_species-list.csv"))
 ## decision tree example ----
 tree <- read_rds(here("output/results/decision_tree_example.rds"))
 
-# 1. data cleaning stats ----
+# 1. performance grid ----
+# small multiples of heatmaps, a row for each species group,
+# a column for each model, cleaning step on the x-axis, 
+# filter step on the y-axis, and the intensity of colour
+# representing the TSS.
+
+performance_grid <-
+  performance %>%
+  filter(downsample == "no",
+         target == "IUCN RL",
+         .metric == "TSS",
+         group != "All") %>%
+  mutate(group=factor(group, levels=group_names_small, ordered=TRUE),
+         model=factor(model, levels=model_names, ordered=TRUE)) %>%
+  complete(filter, 
+           nesting(group, clean, model)) %>%
+  group_by(group, clean, model) %>%
+  fill(.value) %>%
+  ungroup() %>%
+  ggplot(mapping=aes(x=clean, y=filter, fill=.value)) +
+  geom_tile() +
+  geom_vline(xintercept=4.5, colour="red") +
+  facet_grid(group ~ model) +
+  coord_equal() +
+  scale_x_discrete(drop=FALSE, expand=c(0,0)) +
+  scale_y_discrete(drop=FALSE, expand=c(0,0), 
+                   limits=c("4", "3", "2", "1")) +
+  viridis::scale_fill_viridis(name="True skill statistic", 
+                              direction=1, limits=c(0, 1)) +
+  labs(x="Coordinate cleaning step", y="Record filtering step") +
+  guides(fill=guide_colorbar(title.position="top", title.hjust=0, 
+                             barheight=1, barwidth=25)) +
+  theme_grid() +
+  theme(panel.grid.major.x=element_blank())
+
+ggsave(paste(output_dir, "figure-1_performance-grid.svg", sep="/"), 
+       performance_grid, height=7, width=7)
+
+# 2. data cleaning stats ----
 # small multiples of bar charts, with a row for each species group
 # and a column for each filter step. coordinate cleaning step along the
 # x-axis, and number of species on the y-axis. the bars are stacked
@@ -90,47 +128,9 @@ species_coverage <-
     panel.grid.major.y=element_line(linetype=3, colour="grey80")
   )
 
-ggsave(paste(output_dir, "figure-1_cleaning-species-coverage.svg", sep="/"),
+ggsave(paste(output_dir, "figure-2_cleaning-species-coverage.svg", sep="/"),
        species_coverage,
        height=5, width=7)
-
-# 2. performance grid ----
-# small multiples of heatmaps, a row for each species group,
-# a column for each model, cleaning step on the x-axis, 
-# filter step on the y-axis, and the intensity of colour
-# representing the TSS.
-
-performance_grid <-
-  performance %>%
-  filter(downsample == "no",
-         target == "IUCN RL",
-         .metric == "TSS",
-         group != "All") %>%
-  mutate(group=factor(group, levels=group_names_small, ordered=TRUE),
-         model=factor(model, levels=model_names, ordered=TRUE)) %>%
-  complete(filter, 
-           nesting(group, clean, model)) %>%
-  group_by(group, clean, model) %>%
-  fill(.value) %>%
-  ungroup() %>%
-  ggplot(mapping=aes(x=clean, y=filter, fill=.value)) +
-  geom_tile() +
-  geom_vline(xintercept=4.5, colour="red") +
-  facet_grid(group ~ model) +
-  coord_equal() +
-  scale_x_discrete(drop=FALSE, expand=c(0,0)) +
-  scale_y_discrete(drop=FALSE, expand=c(0,0), 
-                   limits=c("4", "3", "2", "1")) +
-  viridis::scale_fill_viridis(name="True skill statistic", 
-                              direction=1, limits=c(0, 1)) +
-  labs(x="Coordinate cleaning step", y="Record filtering step") +
-  guides(fill=guide_colorbar(title.position="top", title.hjust=0, 
-                             barheight=1, barwidth=25)) +
-  theme_grid() +
-  theme(panel.grid.major.x=element_blank())
-
-ggsave(paste(output_dir, "figure-2_performance-grid.svg", sep="/"), 
-       performance_grid, height=7, width=7)
 
 # 3. sample choice exploration ----
 # three subplots:

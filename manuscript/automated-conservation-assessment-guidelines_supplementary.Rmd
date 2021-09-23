@@ -41,29 +41,24 @@ We performed our study using the R statistical computing language [@RCoreTeam202
 knitr::include_graphics("../figures/figure-s1_tss-comparison.png")
 ```
 
-```{r cleaning-comparison, out.width="100%", fig.cap="The mean and median (A) number of occurrence records and (B) extent of occurrence (EOO) for species in each data set as the occurrence data is filtered and cleaned. The dashed line in (B) represents the IUCN Red List threshold on EOO for a threatened species."}
-knitr::include_graphics("../figures/figure-s2_cleaning-comparison.png")
-```
-
 ```{r downsampling-comparison, out.width="100%", fig.cap="The performance of each AA method on each group with and without downsampling to even the balance of threatened to non-threatened species in the dataset."}
-knitr::include_graphics("../figures/figure-s3_downsampling-comparison.png")
+knitr::include_graphics("../figures/figure-s2_downsampling-comparison.png")
 ```
 
 ```{r groupwise-comparison, out.width="100%", fig.cap="A comparison of the performance of AA methods on each study group when trained on all three datasets combined to the performance when trained on each dataset individually."}
-knitr::include_graphics("../figures/figure-s4_group-comparison.png")
+knitr::include_graphics("../figures/figure-s3_group-comparison.png")
+```
+
+```{r criteria-comparison, out.width="100%", fig.cap="The accuracy of each AA method on threatened species in each study group assessed under the different IUCN Red List criteria. An assessment may cite more than one criterion."}
+knitr::include_graphics("../figures/figure-s4_criteria-comparison.png")
 ```
 
 ```{r detailed-performance-comparison, out.width="100%", fig.cap="Comparison of performance of AA methods on each study group as the occurrence data is filtered and cleaned, measured by (A) accuracy, (B) sensitivity, and (C) specificity."}
 knitr::include_graphics("../figures/figure-s5_detailed-performance-comparison.png")
 ```
 
-```{r accuracy-model-comparison, out.width="100%", fig.cap="The relationship between predicted probability of being threatened and number of occurrence records estimated by logistic regression models fit to the test set predictions of each AA method. Faint lines indicate the estimates for models fit to each cross-validation fold used to train the AA methods and bold lines show the median relationship. The lines at the bottom of each plot show the datapoints used to fit the models."}
-knitr::include_graphics("../figures/figure-s6_accuracy-model-comparison.png")
-```
-
-
 ```{r permutation-importance, out.width="100%", fig.cap="Mean decrease in accuracy attributable to each predictor in our random forest models as estimated by permutation feature importance."}
-knitr::include_graphics("../figures/figure-s7_rf-permutation-importance.png")
+knitr::include_graphics("../figures/figure-s6_rf-permutation-importance.png")
 ```
 
 ```{r predictor-table}
@@ -84,15 +79,11 @@ predictor_table %>%
   knitr::kable(caption="Details of the predictors used in each method, how they were calculated, and their source.")
 ```
 
-```{r accuracy-model-table, warning=FALSE, message=FALSE}
-d <- vroom(here("output/figures/table-s1_accuracy-model-table.csv"))
+```{r criteria-table, warning=FALSE, message=FALSE}
+criteria_table <- vroom(here("figures/table-2_criteria-table.csv"))
 
-d %>%
-  select("Group"="group", "Model"="model", "Term"="term",
-         "Estimate"=".estimate", "Lower 95% CI"=".lower",
-         "Upper 95% CI"=".upper") %>%
-  knitr::kable(digits=2,
-               caption="Table S2. Model coefficients for logistic regression models relating the accuracy of the AA methods to the number of occurrence records for a species. The models were fit with the formula $log(\\hat{p}_i / 1 - \\hat{p}_i) = \\alpha + \\beta log_{10}(occurrences)$ and all coefficients are shown in their exponentiated form. Therefore, the intercept terms can be interpreted as the odds that a species with one occurrence record is predicted correctly, while the slope term can be interpreted as the multiplicative increase in the odds that a species is predicted correctly with each increase in the order of magnitude of the number of occurrences.", escape=FALSE)
+criteria_table %>%
+  knitr::kable(digits=2, caption="A breakdown of the proportion of species in each group with assessments citing each of the IUCN Red List Criteria. Criteria are only required for species assessed as threatened, and assessments may cite more than one criterion.")
 ```
 
 # References

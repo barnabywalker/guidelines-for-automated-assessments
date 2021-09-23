@@ -74,6 +74,38 @@ species_list_stats <-
 vroom_write(species_list_stats, paste(output_dir, "species_list_stats.csv", sep="/"),
             delim=",")
 
+# criteria stats ----
+# proportion of species assessed under each criteria
+criteria_table <-
+  species_list %>%
+  mutate(A=str_detect(criteria, "A"),
+         B=str_detect(criteria, "B"),
+         C=str_detect(criteria, "C"),
+         D=str_detect(criteria, "D"),
+         E=str_detect(criteria, "E"),) %>%
+  filter(category %in% c("VU", "EN", "CR")) %>%
+  group_by(group) %>%
+  summarise(A=sum(A, na.rm=TRUE) / n(),
+            B=sum(B, na.rm=TRUE) / n(),
+            C=sum(C, na.rm=TRUE) / n(),
+            D=sum(D, na.rm=TRUE) / n(),
+            E=sum(E, na.rm=TRUE) / n(),
+            .groups="drop")
+
+criteria_table <-
+  species_list %>%
+  filter(!is.na(category)) %>%
+  group_by(group) %>%
+  summarise(with_criteria=mean(!is.na(criteria)),
+            threatened=mean(category %in% c("VU", "EN", "CR")),
+            .groups="drop") %>%
+  left_join(criteria_table, by="group") %>%
+  mutate(across(where(is.numeric), ~.x*100))
+
+vroom_write(criteria_table, 
+            paste(output_dir, "criteria-table.csv", sep="/"), 
+            delim=",")
+
 # raw occurrence record stats ----
 # the number, mean, and median records, and number of preserved specimens in
 # GBIF occurrences before cleaning
@@ -225,6 +257,64 @@ group_performance <-
             .groups="drop")
 
 vroom_write(group_performance, paste0(output_dir, "/groupwise_performance.csv"),
+            delim=",")
+
+# criteria-wise performance ----
+
+prediction_files <- list.files(here("output/model_results"),
+                               pattern="_test-predictions.csv",
+                               full.names=TRUE)
+
+predictions <- 
+  vroom(prediction_files[! str_detect(prediction_files, "threshold")],
+        id="filename") %>%
+  bind_rows(
+    vroom(prediction_files[str_detect(prediction_files, "threshold")],
+          id="filename")
+  )
+
+predictions <-
+  predictions %>%
+  tidylog::left_join(
+    species_list %>% 
+      filter(target == "IUCN RL") %>%
+      distinct(id, criteria),
+    by=c("wcvp_id"="id")
+  ) %>%
+  mutate(A=str_detect(criteria, "A"),
+         B=str_detect(criteria, "B"),
+         C=str_detect(criteria, "C"),
+         D=str_detect(criteria, "D")) %>%
+  filter(!is.na(criteria)) %>%
+  filter(obs == "threatened")
+
+metrics <- metric_set(accuracy)
+
+criteria_performance <-
+  predictions %>%
+  select(-criteria) %>%
+  pivot_longer(cols=A:D, names_to="criteria", values_to="has_criteria") %>%
+  mutate(obs=factor(obs, levels=c("threatened", "not threatened")),
+         .pred_class=factor(.pred_class, levels=levels(obs))) %>%
+  group_by(filename, criteria, has_criteria, id, id2) %>%
+  metrics(truth=obs, estimate=.pred_class)
+
+criteria_performance <-
+  criteria_performance %>%
+  mutate(target=str_extract(filename, "(?<=target-)[a-z]+"),
+         filter=str_extract(filename, "(?<=filter-)\\d+"),
+         clean=str_extract(filename, "(?<=clean-)[A-Za-z]+"),
+         model=str_extract(filename, "(?<=model-)[a-z]+"),
+         downsample=str_extract(filename, "(?<=downsample-)[a-z]+"),
+         group=str_extract(filename, "(?<=results/)[a-z]+")) %>%
+  mutate(.metric=recode(.metric, !!! metric_names),
+         model=recode(model, !!! model_names),
+         target=recode(target, !!! target_names),
+         clean=recode(clean, "db"="expert"),
+         group=recode(group, !!! group_names)) %>%
+  select(-filename)
+
+  vroom_write(criteria_performance, paste0(output_dir, "/criteria-performance.csv"),
             delim=",")
 
 # predictions ----
