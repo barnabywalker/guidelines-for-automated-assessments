@@ -173,6 +173,14 @@ myrcia_list <-
                          `Critically Endangered`="CR",
                          `Extinct`="EX"))
 
+# add column for grouped cv
+myrcia_list <- 
+  myrcia_list %>%
+  left_join(
+    myrcia_sections %>% select(id, cv_group=section),
+    by="id"
+  )
+
 # save to file for analysis
 write_csv(myrcia_list, here("output/myrcia-rl_species-list.csv"))
 
@@ -312,6 +320,11 @@ legume_list <-
                          `Critically Endangered`="CR",
                          `Extinct`="EX"))
 
+# add genus for grouped cv
+legume_list <-
+  legume_list %>%
+  mutate(cv_group=str_extract(name, "^\\w+"))
+
 # save to file for analysis
 write_csv(legume_list, here("output/legume-rl_species-list.csv"))
 
@@ -418,6 +431,11 @@ orchid_list <-
                          `Endangered`="EN",
                          `Critically Endangered`="CR",
                          `Extinct`="EX"))
+
+# add genus for grouped cv
+orchid_list <-
+  orchid_list %>%
+  mutate(cv_group=str_extract(name, "^\\w+"))
 
 # save to file for analysis
 write_csv(orchid_list, here("output/orchid-rl_species-list.csv"))

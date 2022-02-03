@@ -1,6 +1,285 @@
 #' Utility functions for using models.
 #' 
 
+#' Tune a model for a set of hyperparameter values.
+#' 
+#' Evaluate a tidymodels workflow across a grid of hyperparameters,
+#' for a specific CV fold. This is mappable across a rsample split object.
+#' 
+#' @param fold an rsample split object defining a single CV fold.
+#' @param wf a tidymodels workflow object.
+#' @param grid a grid of hyperparameter values, as a data frame.
+#' @param metrics a set of metrics to evaluate the model with.
+#' 
+#' @return a dataframe of metric values.
+#' 
+tune_over_folds <- function(fold, wf, grid, metrics) {
+  tune_grid(
+    wf,
+    fold,
+    grid=grid,
+    metrics=metrics
+  )
+}
+
+#' Tune a densely connected neural net for a set of hyperparameter values.
+#' 
+#' Evaluate a keras neural net across a grid of hyperparameters,
+#' for a specific CV fold. This is mappable across a rsample split object.
+#' 
+#' @param fold an rsample split object defining a single CV fold.
+#' @param grid a grid of hyperparameter values, as a data frame.
+#' @param preprocessor a tidymodels recipe for preprocessing the data.
+#' @param epochs the maximum number of epochs to train each model for.
+#' 
+#' @return a dataframe of loss values.
+#' 
+tune_densenet <- function(fold, grid, preprocessor=NULL, epochs=50) { 
+  grid %>%
+    mutate(tuning=map2(dropout, layers, ~eval_densenet_loss(fold, preprocessor, dropout=.x, layers=.y, epochs=epochs))) %>%
+    unnest(cols=tuning)
+}
+
+tune_densenet_over_folds <- function(splits, grid, preprocessor=NULL, epochs=50) {
+  splits %>%
+    mutate(tuning=map(splits, 
+                      ~tune_densenet(.x, grid, preprocessor=preprocessor, epochs=epochs))) %>%
+    select(-splits) %>%
+    unnest(tuning) %>%
+    group_by(dropout, layers, epoch) %>%
+    summarise(loss=mean(loss), accuracy=mean(accuracy), .groups="drop")
+}
+
+#' Make a densely connected neural network.
+#' 
+#' Use the keras api to make a sequential neural network of 
+#' the specified dense layers each followed by dropout at the specified rate.
+#' 
+#' @param layers a numeric vector of the number of hidden units in each layer.
+#' @param dropout the rate of dropout to apply after each layer.
+#' @param spec a keras data spec used to define the input layer.
+#' 
+#' @return a keras sequential model
+#' 
+make_densenet <- function(layers, features, dropout=0) {
+  m <- 
+    keras_model_sequential() %>% 
+    layer_dense_features(features)
+  
+  for (layer in layers) {
+    m <-
+      m %>%
+      layer_dense(units=layer, activation="relu") %>%
+      layer_dropout(dropout)
+  }
+  
+  m %>%
+    layer_dense(1, activation="sigmoid")
+}
+
+#' Train a keras densely connected neural network.
+#' 
+#' @param train_ds a keras dataset for the training data.
+#' @param valid_ds a keras dataset for the validation data.
+train_densenet <- function(train_ds, features, valid_ds=NULL, layers=30, dropout=0, epochs=50, batch_size=32, verbose=0) {
+  m <- make_densenet(layers=layers, features=features, dropout=dropout)
+  
+  m %>%
+    compile(
+      optimizer="adam",
+      loss=loss_binary_crossentropy,
+      metrics=list("accuracy")
+    )
+  
+  history <- 
+    m %>%
+    fit(
+      train_ds,
+      epochs=epochs,
+      validation_data=valid_ds,
+      verbose=verbose
+    )
+  
+  list(model=m, history=history)
+}
+
+#' Evaluate the loss of a densley connected neural network.
+#'
+#' Trains a neural network for a specified number of epochs with the specified number and size
+#' of layers and rate of dropout.
+#'
+#' @param split an rsample split object.
+#' @param preprocessor a tidymodels preprocessing recipe
+#' @param layers a numeric vector with the number of hidden units in each layer
+#'   of the network.
+#' @param dropout the dropout rate applied after each dense layer.
+#' @param epochs the number of epochs to train for.
+#' @param batch_size the size of training example batches.
+#' 
+#' @returns a dataframe of losses
+#'
+eval_densenet_loss <- function(split, preprocessor=NULL, layers=30, dropout=0, epochs=50, batch_size=32) {
+  train <- get_fold(split, preprocessor=preprocessor, fold="train")
+  val <- get_fold(split, preprocessor=preprocessor, fold="valid")
+  
+  ds <- prep_keras_data(train, val, batch_size=batch_size)
+  features <- dense_features(ds$spec)
+  
+  r <- train_densenet(ds$train, features=features, valid_ds=ds$valid, layers=layers, dropout=dropout, epochs=epochs, 
+                      verbose=0, batch_size=batch_size)
+  
+  r$history$metrics %>%
+    as_tibble() %>%
+    tibble::rowid_to_column(var="epoch") %>%
+    select(epoch, loss=val_loss, accuracy=val_accuracy)
+}
+
+prep_keras_data <- function(train, val=NULL, batch_size=32) {
+  
+  train_ds <- 
+    train %>%
+    mutate(obs=ifelse(obs == "threatened", 1, 0)) %>%
+    df_to_dataset(batch_size=batch_size)
+  
+  keras_spec <- 
+    feature_spec(train_ds, obs ~ .) %>%
+    step_numeric_column(tfdatasets::all_numeric())
+  
+  keras_prep <- fit(keras_spec)
+  
+  if (! is.null(val)) {
+    val_ds <- 
+      val %>%
+      mutate(obs=ifelse(obs == "threatened", 1, 0)) %>%
+      df_to_dataset(shuffle=FALSE, batch_size=batch_size) %>%
+      dataset_use_spec(spec=keras_prep)  
+  } else {
+    val_ds <- NULL
+  }
+  
+  list(train=dataset_use_spec(train_ds, spec=keras_prep), valid=val_ds, spec=keras_prep)
+}
+
+df_to_dataset <- function(df, shuffle = TRUE, batch_size = 32) {
+  ds <- df %>% 
+    tensor_slices_dataset()
+  
+  if (shuffle)
+    ds <- ds %>% dataset_shuffle(buffer_size = nrow(df))
+  
+  ds %>% 
+    dataset_batch(batch_size = batch_size)
+}
+
+#' Evaluate a densely connected neural net with a set of metrics.
+eval_densenet_preds <- function(split, preds, metrics, preprocessor=NULL, dropout=0, layers=30, epochs=50, batch_size=32) {
+  train <- get_fold(split, preprocessor=preprocessor, fold="train")
+  test <- get_fold(split, preprocessor=preprocessor, fold="valid")
+  
+  ds <- prep_keras_data(train, test, batch_size=batch_size)
+  features <- dense_features(ds$spec)
+  
+  r <- train_densenet(ds$train, features=features, layers=layers, dropout=dropout, epochs=epochs, 
+                      verbose=0, batch_size=batch_size)
+  
+  test %>%
+    mutate(preds=ifelse(predict(r$model, ds$valid) > 0.5, "threatened", "not threatened")) %>%
+    mutate(preds=factor(preds, levels=levels(obs))) %>%
+    metrics(truth=obs, estimate=preds)
+}
+
+fit_final_densenet <- function(split, preprocessor=NULL, dropout=0, layers=30, epochs=50, batch_size=32) {
+  train <- get_fold(split, preprocessor=preprocessor, fold="train")
+  test <- get_fold(split, preprocessor=preprocessor, fold="valid")
+  
+  ds <- prep_keras_data(train, test, batch_size=batch_size)
+  features <- dense_features(ds$spec)
+  
+  r <- train_densenet(ds$train, features=features, layers=layers, dropout=dropout, epochs=epochs, 
+                      verbose=0, batch_size=batch_size)
+  
+  test_orig <- get_fold(split, fold="valid")
+  
+  preds <- predict_densenet(r$model, test_orig, split, preprocessor)
+
+  list(.fit=r$model, .pred=preds)
+}
+
+predict_densenet_raw <- function(model, x, split, preprocessor) {
+  train <- get_fold(split, fold="train")
+
+  preprocessor <- prep(preprocessor, train)
+  x_prep <- bake(preprocessor, x)
+  
+  ds <- prep_keras_data(train, val=x_prep)
+  
+  predict(model, ds$valid)
+}
+
+predict_densenet <- function(model, x, split, preprocessor) {
+  preds <- predict_densenet_raw(model, x, split, preprocessor)  
+  
+  x %>%
+    select(wcvp_id, obs) %>%
+    mutate(.pred_prob=as.vector(preds)) %>%
+    mutate(.pred_class=ifelse(.pred_prob > 0.5, "threatened", "not threatened")) %>%
+    mutate(.pred_class=factor(.pred_class, levels=levels(obs), ordered=TRUE))
+}
+
+make_pred_wrapper <- function(split, preprocessor) {
+  function(object, newdata) {
+    prob <- 
+      predict_densenet_raw(object, newdata, split, nn_recipe) %>%
+      as.vector() 
+    
+    cls <- 
+      ifelse(prob > 0.5, "threatened", "not threatened") %>%
+      factor(levels=c("threatened", "not threatened"))
+    
+    cls
+  }
+}
+
+densenet_importance <- function(model, split, preprocessor) {
+  test <- assessment(split)
+
+  vi_permute(
+    object=model,
+    method="permute",
+    num_features=nrow(preprocessor$term_info) - 1,
+    pred_wrapper=make_pred_wrapper(split, preprocessor),
+    target=test$obs,
+    metric="accuracy",
+    train=test
+  ) %>%
+    rename(feature=Variable, accuracy=Importance) %>%
+    filter(feature != "obs")
+}
+
+#' Get the desired fold from a split object and (optionally) apply preprocessing to it.
+#' 
+#' @param split an rsample split object
+#' @param preprocessor a tidymodels preprocessing recipe
+#' @param fold a string specifying which fold, e.g.'train' or 'valid'
+#' 
+#' @return a dataframe of the desired fold (optionally after preprocessing).
+#' 
+get_fold <- function(split, preprocessor=NULL, fold=c("train", "valid")) {
+  fold <- match.arg(fold)
+  if (fold == "train") {
+    d <- analysis(split)
+  } else {
+    d <- assessment(split)
+  }
+  
+  if (! is.null(preprocessor)) {
+    d_train <- analysis(split)
+    preprocessor <- prep(preprocessor, d_train)
+    d <- bake(preprocessor, new_data=d)
+  }
+  
+  d
+}
 
 #' Get predictions from a fit workflow.
 #' 
@@ -57,6 +336,37 @@ predict_iucn <- function(x, threshold=20000) {
   
   if ("obs" %in% colnames(x)) {
     obs <- x$obs
+    pred <- factor(pred, levels=levels(obs))
+  } else {
+    obs <- factor(NA_character_, levels=levels(pred))
+  }
+  
+  tibble(
+    wcvp_id=x$wcvp_id,
+    .pred_class=pred,
+    obs=obs
+  )
+}
+
+#' Predict the threat status of a species using results from ConR.
+#' 
+#' This is a wrapper around the ConR results, just looking at the predicted
+#' category and sorting species into 'threatened' and 'not threatened'.
+#' 
+#' @param x A dataframe or rsample object of data holding results from ConR.
+#' 
+#' @return A dataframe of predictions.
+predict_conr <- function(x) {
+  if ("rsplit" %in% class(x)) {
+    x <- analysis(x)  
+  }
+  
+  pred <- ifelse(stringr::str_detect(x$category_conr, "^LC"), "not threatened", "threatened")
+  pred <- factor(pred, levels=c("threatened", "not threatened"))
+  
+  if ("obs" %in% colnames(x)) {
+    obs <- x$obs
+    pred <- factor(pred, levels=levels(obs))
   } else {
     obs <- factor(NA_character_, levels=levels(pred))
   }
@@ -109,6 +419,52 @@ fit_sample <- function(wf, split, n=10, prop=NULL) {
            .n=n)
 }
 
+fit_sample_densenet <- function(split, preprocessor, layers=30, dropout=0.1, epochs=50, batch_size=32, n=10, prop=NULL) {
+  train <- get_fold(split, fold="train")
+  test <- get_fold(split, fold="valid")
+  if (is.null(n)) {
+    train <- 
+      analysis(split) %>%
+      group_by(obs) %>%
+      slice_sample(prop=prop) %>%
+      ungroup()
+    
+    n <- nrow(train)
+  } else {
+    train <- 
+      analysis(split) %>%
+      group_by(obs) %>%
+      slice_sample(n=n) %>%
+      ungroup()
+    
+    prop <- n / nrow(analysis(split))
+  }
+  
+  preprocessor <- prep(preprocessor, train)
+  train <- bake(preprocessor, train)
+  test <- bake(preprocessor, test)
+  
+  ds <- prep_keras_data(train, test, batch_size=batch_size)
+  features <- dense_features(ds$spec)
+  
+  r <- train_densenet(ds$train, features=features, layers=layers, dropout=dropout, epochs=epochs, 
+                      verbose=0, batch_size=batch_size)
+  
+  preds <- predict(r$model, ds$valid)
+  
+  test_orig <- get_fold(split, fold="valid")
+  metrics <- metric_set(accuracy, sens, spec, j_index)
+  
+  test_orig %>%
+    select(wcvp_id, obs) %>%
+    mutate(.pred_prob=as.vector(preds)) %>%
+    mutate(.pred_class=ifelse(.pred_prob > 0.5, "threatened", "not threatened")) %>%
+    mutate(.pred_class=factor(.pred_class, levels=levels(obs), ordered=TRUE)) %>%
+    metrics(truth=obs, estimate=.pred_class) %>%
+    mutate(.prop=prop,
+           .n=n)
+}
+
 #' Make a learning curve for a model on a single CV fold.
 #' 
 #' Constructs a learning curve for a model by sampling subsamples of increasing
@@ -127,6 +483,14 @@ make_learning_curve <- function(wf, split, props=seq(0.5, 1, by=0.1), n=NULL) {
     map_dfr(props, ~fit_sample(wf, split, prop=.x))  
   } else {
     map_dfr(n, ~fit_sample(wf, split, n=.x))  
+  }
+}
+
+make_densenet_learning_curve <- function(split, preprocessor, layers=30, dropout=0.1, epochs=50, batch_size=32, props=seq(0.5, 1, by=0.1), n=NULL) {
+  if (is.null(n)) {
+    map_dfr(props, ~fit_sample_densenet(split, preprocessor, layers=layers, dropout=dropout, epochs=epochs, batch_size=batch_size, prop=.x))  
+  } else {
+    map_dfr(n, ~fit_sample_densenet(split, preprocessor, layers=layers, dropout=dropout, epochs=epochs, batch_size=batch_size, n=.x))  
   }
 }
 
@@ -239,6 +603,10 @@ calculate_permutation_importance <- function(x, wf, metrics, .times=100) {
     summarise(mean_decrease=mean(.decrease),
               .groups="drop")
 }
+
+
+
+
 
 #' Extract or calculate the feature importance for a random forest fit.
 #' 

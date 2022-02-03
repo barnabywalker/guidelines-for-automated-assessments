@@ -81,9 +81,25 @@ predictors <-
 
 # join to target ----
 rl_assessments <- vroom(assessment_file,
-                        col_select=c(id, name, category))
+                        col_select=c(id, name, category, cv_group))
 
 predictors <- left_join(predictors, rl_assessments, by=c("wcvp_id"="id"))
+
+# calculate conr predictors ----
+conr_predictors <- 
+  occurrences %>%
+  select(ddlat=decimalLatitude, ddlon=decimalLongitude, tax=wcvp_id) %>%
+  ConR::IUCN.eval(write_results=FALSE, NbeCores=parallel::detectCores(), 
+                  parallel=TRUE, showWarnings=FALSE) %>%
+  tibble::rownames_to_column(var="wcvp_id") %>%
+  as_tibble() %>%
+  select(wcvp_id, eoo_conr=EOO, aoo_conr=AOO, nobs_conr=Nbe_unique_occ., 
+         nsub_pop_conr=Nbe_subPop, nloc_conr=Nbe_loc,
+         category_conr=Category_code)
+
+predictors <- 
+  predictors %>%
+  left_join(conr_predictors, by="wcvp_id")
 
 # save predictors to file ----
 vroom_write(predictors, output_file)

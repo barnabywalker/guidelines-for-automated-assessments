@@ -183,7 +183,10 @@ for (set in datasets) {
     
     for (downsample in c(FALSE, TRUE)) {
       output_name <- glue(name, "_downsample-{ifelse(downsample, 'yes', 'no')}")
-      source(here("analysis/07_evaluate_methods.R"))
+      for (group_cv in c(FALSE, TRUE)) {
+        output_name <- glue(name, "_cv-{ifelse(group_cv, 'grouped', 'random')}")
+        source(here("analysis/07_evaluate_methods.R"))
+      }
     }
   }
 }
