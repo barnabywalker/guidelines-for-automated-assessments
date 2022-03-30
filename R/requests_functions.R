@@ -1,10 +1,35 @@
 #' Functions that help to make requests to outside resources
 
-# libraries ----
-library(kewr) 
-library(tibble)
-library(dplyr)
-library(progress)
+#' Download and unzip the WCVP.
+#' 
+#' A wrapper around [kewr::download_wcvp](), to check if the WCVP has already
+#' been downloaded, and download and unzip it if not. If the version is not specified,
+#' this will check for the latest version and download it.
+#' 
+#' @param savedir directory to save and unzip WCVP to.
+#' @param version a numbered version of the WCVP, if null will check for latest version.
+#' 
+#' @return the filepath of the WCVP file.
+#'
+get_wcvp <- function(savedir, version=NULL) {
+  version_url <- kewr:::wcvp_download_url_(version=version)
+  version_name <- basename(version_url)
+  
+  zipfile <- file.path(savedir, version_name)
+  
+  if (! file.exists(zipfile)) {
+    kewr::download_wcvp(savedir, version)
+    cli::cli_alert_success("Downloaded WCVP version {version_name} to {.file {savedir}}.")
+  }
+  
+  wcvp_file <- unzip_file(zipfile, savedir)
+  
+  wcvp <- readr::read_delim(wcvp_file, delim="|", quote="", show_col_types=FALSE,
+                            progress=FALSE)
+  cli::cli_alert_success("Loaded WCVP version {version_name} from {.file {savedir}}.")
+  
+  wcvp
+}
 
 
 #' Request the native range for a taxon from POWO.
@@ -17,20 +42,21 @@ library(progress)
 #' 
 #' @return A data frame with native distribution
 get_native_range_ <- function(id, .wait=0.3) {
-  record <- lookup_powo(id, distribution=TRUE, .wait=.wait)
-  record <- tidy(record)
-  
-  if (! "distribution" %in% colnames(record)) {
-    range <- tibble()
-  } else if (! "natives" %in% colnames(record$distribution[[1]])) {
-    range <- tibble()
+  record <- tryCatch(
+    kewr::lookup_powo(id, distribution=TRUE, .wait=.wait),
+    error=function(c) list()
+  )
+  if (is.null(record$distribution)) {
+    dist <- NA_character_
+  } else if (is.null(record$distribution$natives)) {
+    dist <- NA_character_
   } else {
-    range <- record$distribution[[1]]$natives[[1]]
-    range <- select(range, distribution=tdwgCode)
+    dist <- purrr::map_chr(record$distribution$natives, ~.x$tdwgCode)
   }
   
-  range
+  dist
 }
+
 
 #' Get the native range of a dataframe of taxa.
 #' 
@@ -47,7 +73,7 @@ get_native_range_ <- function(id, .wait=0.3) {
 #'   info nested within the `distribution` column. Use `unnest` to
 #'   unfold it.
 get_native_ranges <- function(df, .wait=0.3) {
-  pb <- progress_bar$new(
+  pb <- progress::progress_bar$new(
     format="[:bar] :current/:total (:percent)",
     total=nrow(df),
     clear=FALSE,
@@ -66,95 +92,46 @@ get_native_ranges <- function(df, .wait=0.3) {
     ungroup()
 }
 
-#' Get accepted name info from WCVP.
+
+#' Download and unzip a GBIF occurrence download.
 #' 
-#' Requests accepted name info for taxon names in a dataframe,
-#' using the IPNI ID. The returned info is resolved to only
-#' return info for accepted names and homotypic synonyms.
+#' Use a GBIF occurrence download key to download a zip file of occurrences
+#' and unzip in the specified directory.
 #' 
-#' @param df A dataframe of taxon name info, with IPNI ID
-#'   stored in a column called `ipni_id`.
-#' @param .wait Time to wait in seconds between requests to WCVP.
-#' @return The same dataframe, with accepted name info in new 
-#'   columns.
-get_accepted_info <- function(df, .wait=0.3) {
+#' @param key The key for a GBIF download.
+#' @param download_dir path to a directory to store the download in.
+#' 
+#' @return the path to the extracted occurrence CSV file.
+#'
+get_gbif_dataset <- function(key, download_dir) {
+  zipfile <- file.path(download_dir, glue::glue("{key}.zip"))
+  if (! file.exists(zipfile)) {
+    rgbif::occ_download_get(key, download_dir)
+  }
+  csvfile <- file.path(download_dir, glue::glue("{key}.csv"))
+  if (! file.exists(csvfile)) {
+    unzip_file(zipfile, download_dir)  
+  }
   
-  pb <- progress::progress_bar$new(
-    format="[:bar] :current/:total (:percent)",
-    total=nrow(df),
-    clear=FALSE,
-    show_after=0,
-    force=TRUE
-  )
-  
-  f <- function(id) {
-    pb$tick()
-    
-    results <- try(lookup_wcvp(id, .wait=.wait), silent=TRUE)
-    
-    error <- inherits(results, "try-error")
-    
-    if (error & stringr::str_detect(results, "404")) {
-      results <- tibble()
-    } else if (error) {
-      stop(error)
+  csvfile
+}
+
+#' Utility to unzip a file in a location.
+#'
+#' @param zipfile path to zip file.
+#' @param unzip_dir path to directory to unzip into.
+#'
+#' @return path to unzipped directory.
+#'
+unzip_file <- function(zipfile, unzip_dir) {
+    unzipping <-system2(
+      "unzip",
+      args=c("-o", zipfile, "-d", unzip_dir),
+      stdout=TRUE
+    )
+    if (grepl("Warning message", tail(unzipping, 1))) {
+      cli::cli_abort(unzipping)
     }
     
-    list(results)
-  }
-  
-  df %>%
-    rowwise() %>%
-    mutate(wcvp=f(match_id))
-}
-
-#' Get the parent IDs for a dataframe of taxa.
-#' 
-#' Requests taxonomic info for each taxon and extracts
-#' the IPNI ID of the parent taxon.
-#' 
-#' @param df A dataframe of taxa.
-#' @param id_var The column holding the IPNI ID of each taxon.
-#' @param .wait Time to wait between requests, in seconds.
-#' 
-#' @returns The input dataframe modified with a column for the parent taxon ID.
-get_parent_ids <- function(df, id_var, .wait=0.1) {
-  id_var <- enquo(id_var)
-  
-  pb <- progress::progress_bar$new(
-    format="[:bar] :current/:total (:percent)",
-    total=nrow(df),
-    clear=FALSE,
-    show_after=0,
-    force=TRUE
-  )
-  
-  f <- function(id) {
-    pb$tick()
-    get_parent_id_(id)
-  }
-  
-  df %>%
-    rowwise() %>%
-    mutate(parent_id=f(!! id_var)) %>%
-    ungroup()
-}
-
-#' Request the IPNI ID of the parent for a taxon from WCVP.
-#' 
-#' @param id IPNI ID of the taxon.
-#' @param .wait Time in seconds to wait between requests.
-#' 
-#' @return The parent ID of the taxon, if it exists, otherwise NA.
-get_parent_id_ <- function(id, .wait=0.1) {
-  if (is.na(id)) {
-    return(NA_character_)
-  }
-  
-  wcvp_record <- lookup_wcvp(id, .wait=.wait)
-  if(is.null(wcvp_record$parent$id)) {
-    return(NA_character_)
-  }
-  
-  wcvp_record$parent$id
-}
+    str_extract(unzipping[2], "(?<=inflating: ).*?(?=\\s)")
+}  
