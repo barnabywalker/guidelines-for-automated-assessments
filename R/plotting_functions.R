@@ -19,17 +19,19 @@ theme_grid <- function(...) {
 group_names <- c("Myrcia", "Orchids", "Legumes\n(IUCN RL)", "Legumes\n(SRLI)", "All")
 group_names_small <- c("Myrcia", "Orchids", "Legumes")
 
-model_names <- c("IUCN threshold", "Decision stump", "Decision tree", "Random forest")
+method_names <- c("EOO threshold", "ConR", "Decision stump", "Decision tree", "Random forest", "IUCNN")
 downsample_names <- c("no"="no downsampling",
                       "yes"="downsampling")
+cv_names <- c("random"="random", "grouped"="taxonomic block")
 status_names <- c("labelled"="evaluated, non-DD", 
-                  "unlabelled"="not evaluated or DD")
+                  "unlabelled"="not evaluated or DD",
+                  "unavailable"="no available records")
 feature_names <- c("eoo"="EOO",
-                   "hpd"="Minimum HPD",
-                   "hfi"="HFI",
+                   "human_population"="Minimum HPD",
+                   "human_footprint"="HFI",
                    "precipitation_driest"="Precipitation in\ndriest quarter",
                    "forest_loss"="Forest loss",
-                   "temperature_annual"="Average annual\ntemperature",
+                   "annual_temperature"="Average annual\ntemperature",
                    "elevation"="Elevation",
                    "centroid_latitude"="Latitude of\nrange centroid")
 units <- c(
@@ -45,23 +47,29 @@ units <- c(
 
 ## colours ----
 downsample_colours <- c(
-  "no downsampling"="#ffd700",
-  "downsampling"="#0000ff"
+  "no downsampling"="#a6cee3",
+  "downsampling"="#1f78b4"
 )
 
 pooling_colours <- c(
-  "combined"="#ffb14e",
-  "individual"="#9d02d7"
+  "combined"="#ff7f00",
+  "individual"="#fdbf6f"
 )
 
 status_colours <- c(
   "evaluated, non-DD"="#eb0001", 
-  "not evaluated or DD"="#ff9774"
+  "not evaluated or DD"="#ff9774",
+  "no available records"="#d9d9d9"
 )
 
 target_colours <- c(
-  "IUCN RL"="#cd34b5",
-  "SRLI"="#fa8775"
+  "IUCN RL"="#33a02c",
+  "SRLI"="#b2df8a"
+)
+
+cv_colours <- c(
+  "taxonomic block"="#6a3d9a",
+  "random"="#cab2d6"
 )
 
 # utilities ----

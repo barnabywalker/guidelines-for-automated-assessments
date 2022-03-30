@@ -15,455 +15,307 @@
 #' assessments for the legumes. All of the SRLI assessments should be published
 #' on the RL, so these do not provide additional assessments.
 #' 
+#' EXPECTED INPUTS:
+#'  - `output_dir`: path to the directory to save the species lists to
+#'  - `redlist_dir`: path to a directory with the download of the redlist you want to use
+#'  - `wcvp_dir`: path to a directory containing a download of WCVP or to download the latest WCVP into
+#'  - `distributions`: boolean, whether or not to download species distributions from POWO
+#'  - `name`: name you want to call the group of species
+#'  - `family`: the family, or list of families separated by commas, to download
+#'  - `genus`: the genus, or list of genera separated by commas, to download. will override `family` if both specified.
+#'
+#' OPTIONAL INPUTS:
+#'  - `version`: the version number of the wcvp to use
+#'  - `srli_file`: path to the excel file holding the list of SRLI species
+#'  - `section_file`: path to a csv file mapping species to taxonomic sections
+#'  - `working_set`: path to a csv file holding unpublished assessments
+#' 
+#' EXAMPLE CLI:
+#'  Rscript analysis/02_collate_species.R --name=myrcia --genus=Myrcia,Gomidesia,Marlierea,Mitranthes,Calyptranthes --redlist_dir=data/redlist_plants_2021_3 --working_set=data/myrcias_from_working_set.csv --section_file=data/myrcia_sections.csv --distributions
+#' 
+#' EXAMPLE SOURCE:
+#'  name <- "myrcia"
+#'  genus <- "Myrcia,Gomidesia,Marlierea,Mitranthes,Calyptranthes"
+#'  redlist_dir <- "data/redlist_plants_2021_3"
+#'  output_dir <- "output/species-lists"
+#'  wcvp_dir <- "data/wcvp"
+#'  working_set <- "data/myrcias_from_working_set.csv"
+#'  section_file <- "data/myrcia_sections.csv"
+#'  distributions <- TRUE
+#'  source("analysis/02_collage_species.R")
+#' 
 
 # libraries ----
-library(here)       # handle file paths
-library(dplyr)      # manipulate data
-library(tidyr)      # reshape data
-library(vroom)      # fast reading/writing for text files
-library(readxl)     # read excel files
-library(stringr)    # manipulate strings
-library(glue)       # string interpolation
-library(purrr)      # map functions across data
-library(kewr)       # access Kew's data APIs
-library(progress)   # make nice progress bars
+shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+
+shhlibrary(here)       # handle file paths
+shhlibrary(cli)        # nice interface for command line
+shhlibrary(dplyr)      # manipulate data
+shhlibrary(tidyr)      # reshape data
+shhlibrary(readr)      # reading/writing for text files
+shhlibrary(readxl)     # read excel files
+shhlibrary(stringr)    # manipulate strings
+shhlibrary(glue)       # string interpolation
+shhlibrary(purrr)      # map functions across data
 
 source(here("R/requests_functions.R"))
 source(here("R/name_functions.R"))
 
-# setup directories ----
-dir.create(here("output/name_matching"), showWarnings=FALSE)
+# CLI ----
 
-# load assessments ----
-rl_assessments <- vroom(here("data/redlist_plants_2021_1/assessments.csv"))
-rl_taxonomy <- vroom(here("data/redlist_plants_2021_1/taxonomy.csv"))
+cli_h1("Collating species list, distributions, and assessments")
 
-# also have legume assessments from SRLI
-srli_legume_assessments <- read_excel(here("data/srli_assessed_legumes.xlsx"))
-
-# and Myrcia assessments that haven't been published yet
-ws_assessments <- vroom(here("data/myrcias_from_working_set.csv"))
-
-# myrcia names ----
-
-## get accepted species ----
-
-# genera in Myrcia s.l.
-genera <- c("Myrcia", "Gomidesia", "Mitranthes",
-            "Calyptranthes", "Marlierea")
-
-# get checklist of species from WCVP
-myrcia_accepted <- map(genera, 
-                       ~search_wcvp(list(genus=.x), 
-                                    filters=c("species", "accepted"), 
-                                    limit=1000))
-
-myrcia_accepted <-
-  myrcia_accepted %>%
-  map_dfr(tidy) %>%
-  select(id, name, author)
-
-## get IUCN RL assessments ----
-myrcia_re <- "^(Myrcia|Calyptranthes|Gomidesia|Mitranthes|Marlierea|Mozartia) "
-
-myrcia_assessments <-
-  rl_assessments %>%
-  filter(
-    str_detect(scientificName, myrcia_re),
-    scientificName != "Myrcia emarginata",
-    criteriaVersion == 3.1
-  ) %>%
-  select(assessmentId, internalTaxonId, scientificName, 
-         redlistCategory, redlistCriteria, assessmentDate)
-
-## get working set assessments ----
-ws_assessments <-
-  ws_assessments %>%
-  unite("scientificName", genus, species, sep=" ", remove=FALSE) %>%
-  select(assesmentId=assessmentid, internalTaxonId=taxonid,
-         redlistCategory=category, redlistCriteria=criteria,
-         scientificName) %>%
-  filter(! scientificName %in% myrcia_assessments$scientificName) %>%
-  mutate(source="ws")
-
-myrcia_assessments <-
-  myrcia_assessments %>%
-  mutate(source="rl") %>%
-  bind_rows(ws_assessments)
-
-## match names to WCVP ----
-matches <- match_knms(myrcia_assessments$scientificName)
-matches <- tidy(matches)
-matches <- resolve_multiple_matches(
-  matches, 
-  match_file=here("output/name_matching/myrcia_matches_multiples.csv"),
-  resolution_file=here("output/name_matching/myrcia_matches_resolution.json")
-)
-
-matches <- filter(matches, matched)
-
-# knms points to an older version of IPNI/WCVP, so check missing names
-unmatched <- 
-  myrcia_assessments %>%
-  filter(! scientificName %in% matches$submitted)
-
-message(glue("Unable to match {nrow(unmatched)} names using KNMS with author strings"))
-
-manual_matches <- manually_match_names(
-  unmatched$scientificName, 
-  match_file=here("output/name_matching/myrcia_manual_matches.json")
-)
-
-matched_names <-
-  matches %>%
-  select(submitted, match_id=ipni_id) %>%
-  bind_rows(
-    manual_matches %>% select(submitted, match_id=ipni_id)
-  ) %>%
-  left_join(
-    myrcia_assessments %>% 
-      select(assessmentId, internalTaxonId, scientificName),
-    by=c("submitted"="scientificName")
+if (sys.nframe() == 0L) {
+  default_args <- list(
+    output_dir="output/species-lists",
+    redlist_dir="data/redlist_plants_2021_3",
+    wcvp_dir="data/wcvp",
+    distributions=FALSE
   )
+  args <- R.utils::commandArgs(asValues=TRUE,
+                               excludeReserved=TRUE, excludeEnvVars=TRUE,
+                               defaults=default_args)
+  
+  family <- args$family
+  genus <- args$genus
+  redlist_dir <- args$redlist_dir
+  wcvp_dir <- args$wcvp_dir
+  output_dir <- args$output_dir
+  version <- args$version
+  working_set <- args$working_set
+  srli_file <- args$srli_file
+  section_file <- args$section_file
+  name <- args$name
+  distributions <- args$distributions
+}
 
-# lookup WCVP taxonomic info for matches
-matched_names <- 
-  matched_names %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
+if (! exists("redlist_dir")) {
+  cli_abort(c(
+    "no path to red list assessments",
+    "x"="You must provide the path to a download from the IUCN Red List as the variable {.var redlist_dir}."
+  ))
+}
+
+if (! exists("output_dir")) {
+  cli_abort(c(
+    "no path to save species list",
+    "x"="You must provide the save path as the variable {.var output_dir}."
+  ))
+}
+
+if (! exists("wcvp_dir")) {
+  cli_abort(c(
+    "no path to WCVP",
+    "x"="You must provide a path to a download of the WCVP, or a path to download WCVP to, as {.var wcvp_dir}."
+  ))
+}
+
+if (! exists("family", mode="character") & ! exists("genus", mode="character")) {
+  cli_abort(c(
+    "no taxonomic group provided",
+    "x"="You must provide one of {.var family}, or {.var genus} to collate info for."
+  ))
+}
+
+if (exists("family", mode="character") + exists("genus", mode="character") > 1) {
+  cli_alert_warning(c(
+    "more than one taxonomic grouping provided, only the lowest rank will be used."
+  ))
+}
+
+if (exists("family", mode="character")) {
+  taxonomic_rank <- "family"
+  taxonomic_group <- str_to_title(family)
+  taxonomic_group <- str_split(taxonomic_group, pattern=",\\s?")[[1]]
+}
+
+if (exists("genus", mode="character")) {
+  taxonomic_rank <- "genus"
+  taxonomic_group <- str_to_title(genus)
+  taxonomic_group <- str_split(taxonomic_group, pattern=",\\s?")[[1]]
+}
+
+if (! exists("name", mode="character")) {
+  name <- paste0(str_to_lower(taxonomic_group), collapse="-")
+}
+
+cli_alert_info("Collating information for {.val {taxonomic_group}} (rank = {.val genus}).")
+
+dir.create(output_dir, showWarnings=FALSE)
+cli_alert_info("Saving species list to {.file {output_dir}}.")
+
+# Get accepted species from WCVP ---- 
+cli_h2("Getting accepted species")
+
+dir.create(wcvp_dir, showWarnings=FALSE)
+
+if (! exists("version", mode="numeric")) {
+  version <- NULL
+}
+wcvp <- get_wcvp(wcvp_dir, version=version)
+
+accepted_species <- 
+  wcvp %>%
+  filter(rank == "SPECIES") %>%
+  filter(taxonomic_status == "Accepted") %>%
+  filter(!! sym(taxonomic_rank) %in% taxonomic_group)
+
+if (exists("section_file", mode="character")) {
+  sections <- read_csv(section_file, show_col_type=FALSE, progress=FALSE)
+  
+  accepted_species <-
+    accepted_species %>%
+    inner_join(
+      sections %>% select(-author),
+      by=c("taxon_name"="name")
+    )
+}
+
+cli_alert_success("Found {.strong {nrow(accepted_species)}} accepted species in {.val {taxonomic_group}}.")
+
+# Load RL assessments ----
+cli_h2("Loading Red List assessments")
+
+rl_assessments <- read_csv(file.path(redlist_dir, "assessments.csv"), 
+                           show_col_types=FALSE, progress=FALSE)
+rl_taxonomy <- read_csv(file.path(redlist_dir, "taxonomy.csv"),
+                        show_col_types=FALSE, progress=FALSE)
+
+assessed_taxa <-
+  rl_taxonomy %>%
+  filter(str_to_title(!! sym(glue("{taxonomic_rank}Name"))) %in% taxonomic_group)
+
+assessments <- 
+  rl_assessments %>%
+  filter(internalTaxonId %in% assessed_taxa$internalTaxonId) %>%
+  filter(criteriaVersion == 3.1) %>%
+  select(assessmentId, internalTaxonId, scientificName, 
+         redlistCategory, redlistCriteria, assessmentDate) %>%
+  mutate(source="rl")
+
+cli_alert_success("{nrow(assessments)} IUCN Red List assessments loaded from {.file {redlist_dir}}.")
+
+if (! is.null(working_set)) {
+  ws_assessments <- read_csv(working_set, show_col_types=FALSE, progress=FALSE)
+  
+  ws_assessments <-
+    ws_assessments %>%
+    unite("scientificName", genus, species, sep=" ", remove=FALSE) %>%
+    select(assesmentId=assessmentid, internalTaxonId=taxonid,
+           redlistCategory=category, redlistCriteria=criteria,
+           scientificName) %>%
+    filter(! scientificName %in% assessments$scientificName,
+           ! internalTaxonId %in% assessments$internalTaxonId) %>%
+    mutate(source="ws")
+  
+  assessments <- bind_rows(assessments, ws_assessments)
+  
+  cli_alert_success("Additional {nrow(ws_assessments)} assessments added from working set file at {.file {working_set}}.")
+}
+
+# Match assessment names ----
+cli_h2("Matching assessments exactly to accepted names")
+exact_matches <- 
+  assessments %>%
+  match_names_exactly(wcvp, id_col="internalTaxonId", name_col="scientificName", 
+                      match_rank="SPECIES") %>%
+  filter(! is.na(match_id))
+
+unmatched <- filter(assessments, !internalTaxonId %in% exact_matches$original_id)
+
+if (nrow(unmatched) > 0) {
+  cli_h2("Matching assessments loosely to accepted names")
+  
+  loose_matches <-
+    unmatched %>%
+    match_names_loosely(wcvp, id_col="internalTaxonId", name_col="scientificName") %>%
+    filter(! is.na(match_id))
+} else {
+  loose_matches <- tibble()
+}
+
+cli_h2("Resolving matches")
+
+resolved_matches <-
+  exact_matches %>%
+  bind_rows(loose_matches) %>%
+  filter(match_rank == "SPECIES") %>%
   resolve_accepted_() %>%
-  select(-wcvp)
+  filter(match_status %in% c("Accepted", "Homotypic_Synonym")) %>%
+  add_count(original_id) %>%
+  filter(n == 1) %>%
+  select(-n)
 
-myrcia_assessments <-
-  myrcia_assessments %>%
-  left_join(matched_names, by=c("assessmentId", "internalTaxonId"))
+n_unmatched <- sum(!assessments$internalTaxonId %in% resolved_matches$original_id)
 
-# save the whole matching results
-write_csv(myrcia_assessments, here("output/name_matching/myrcia_assessments_results.csv"))
+cli_alert_success("Resolved {nrow(resolved_matches)} assessment{?s} to accepted names")
+cli_alert_warning("Unable to match {n_unmatched} assessment{?s} to an accepted name")
 
-# remove things that have been assessed as Myrcia and an old name
-myrcia_assessments <-
-  myrcia_assessments %>%
+match_file <- file.path(output_dir, glue("{name}_name-matches.csv"))
+write_csv(resolved_matches, match_file)
+cli_alert_success("Saved matches to {.file {match_file}}.")
+
+# join assessments to accepted species ----
+
+# remove things that are assessed multiple times under different names
+final_matches <-
+  resolved_matches %>%
+  filter(! is.na(accepted_id)) %>%
   group_by(accepted_id) %>%
-  filter(str_detect(submitted, "Myrcia") | n() == 1 | all(is.na(accepted_id))) %>%
+  filter(match_status == "Accepted" | n() == 1) %>%
   ungroup()
 
-## join accepted names and assessments ----
-myrcia_list <-
-  myrcia_accepted %>%
-  left_join(
-    myrcia_assessments %>%
-      filter(! is.na(accepted_id)) %>%
-      select(accepted_id, taxon_id=internalTaxonId, 
-             assessment_id=assessmentId, category=redlistCategory,
-             criteria=redlistCriteria),
-    by=c("id"="accepted_id")
-  )
-
-# clean up assessment categories
-myrcia_list <-
-  myrcia_list %>%
-  mutate(category=recode(category, 
-                         `Least Concern`="LC",
-                         `Data Deficient`="DD",
-                         `Near Threatened`="NT",
-                         `Vulnerable`="VU",
-                         `Endangered`="EN",
-                         `Critically Endangered`="CR",
-                         `Extinct`="EX"))
-
-# add column for grouped cv
-myrcia_list <- 
-  myrcia_list %>%
-  left_join(
-    myrcia_sections %>% select(id, cv_group=section),
-    by="id"
-  )
-
-# save to file for analysis
-write_csv(myrcia_list, here("output/myrcia-rl_species-list.csv"))
-
-# legume names ----
-
-## get accepted species ----
-legumes_accepted <- search_wcvp(list(family="Fabaceae"),
-                                filters=c("accepted", "species"),
-                                limit=50000)
-
-legumes_accepted <-
-  legumes_accepted %>%
-  tidy() %>%
-  select(id, name, author)
-
-## get IUCN RL assessments ----
-legume_assessments <-
-  rl_assessments %>%
-  left_join(
-    rl_taxonomy %>% select(internalTaxonId, familyName, authority),
-    by="internalTaxonId"
-  ) %>%
-  filter(familyName == "FABACEAE",
-         criteriaVersion == 3.1) %>%
-  unite("full_name", scientificName, authority, sep=" ", 
-        na.rm=TRUE, remove=FALSE) %>%
-  select(assessmentId, internalTaxonId, scientificName, 
-         full_name, redlistCategory, redlistCriteria, assessmentDate)
-
-## match assessments to WCVP with author ----
-matches1 <- match_knms(legume_assessments$full_name)
-matches1 <- tidy(matches1)
-matches1 <- resolve_multiple_matches(
-  matches1, 
-  match_file=here("output/name_matching/legumes_matches_authors_multiples.csv"),
-  resolution_file=here("output/name_matching/legumes_matches_authors_resolution.json")
+# get accepted name on the assessment info
+standard_categories <- c(
+  "Least Concern"="LC",
+  "Data Deficient"="DD",
+  "Near Threatened"="NT",
+  "Vulnerable"="VU",
+  "Endangered"="EN",
+  "Critically Endangered"="CR",
+  "Extinct"="EX"
 )
 
-# removed unmatched names
-matches1 <- filter(matches1, matched)
-
-# knms is old so misses some of them
-unmatched <- 
-  legume_assessments %>%
-  filter(! full_name %in% matches1$submitted)
-
-message(glue("Unable to match {nrow(unmatched)} names using KNMS with author strings"))
-
-## match assessments to WCVP without author ----
-matches2 <- match_knms(unmatched$scientificName)
-matches2 <- tidy(matches2)
-matches2 <- resolve_multiple_matches(
-  matches2,
-  match_file=here("output/name_matching/legumes_matches_no_author_multiples.csv"),
-  resolution_file=here("output/name_matching/legumes_matches_no_authors_resolution.json")
-)
-
-matches2 <- filter(matches2, matched)
-
-# handle remaining unmatched names
-unmatched <- 
-  legume_assessments %>%
-  filter(! scientificName %in% matches2$submitted,
-         ! full_name %in% matches1$submitted)
-
-message(glue("Unable to match {nrow(unmatched)} names using KNMS"))
-
-manual_matches <- manually_match_names(
-  unmatched$scientificName, 
-  match_file=here("output/name_matching/legumes_manual_matches.json")
-)
-
-matched_names <-
-  matches2 %>%
-  select(submitted, ipni_id) %>%
-  bind_rows(manual_matches) %>%
-  left_join(
-    legume_assessments %>%
-      select(assessmentId, internalTaxonId, scientificName),
-    by=c("submitted"="scientificName")
+matched_assessments <-
+  assessments %>%
+  inner_join(
+    final_matches %>% select(original_id, accepted_id),
+    by=c("internalTaxonId"="original_id")
   ) %>%
-  bind_rows(
-    matches1 %>%
-      select(submitted, ipni_id) %>%
-      left_join(
-        legume_assessments %>%
-          select(assessmentId, internalTaxonId, full_name),
-        by=c("submitted"="full_name")
-      )  
-  ) %>%
-  mutate(ipni_id=recode(ipni_id, 
-                        "1207838-2"="515137-1",
-                        "271427-2"="526122-1")) %>%
-  filter(! ipni_id %in% c("212297-2")) %>%
-  rename(match_id=ipni_id)
-
-# lookup WCVP taxonomic info for matches
-matched_names <- 
-  matched_names %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  select(-wcvp)
+  select(accepted_id, taxon_id=internalTaxonId, 
+         assessment_id=assessmentId, category=redlistCategory,
+         criteria=redlistCriteria) %>%
+  mutate(category=recode(category, !!! standard_categories))
   
-legume_assessments <-
-  legume_assessments %>%
-  left_join(matched_names, by=c("assessmentId", "internalTaxonId"))
-
-# save the whole matching results
-write_csv(legume_assessments, here("output/name_matching/legume_assessments_results.csv"))
-
-# remove assessments for the same accepted name
-legume_assessments <- distinct(legume_assessments, accepted_id)
-
-## join accepted names to assessments ----
-legume_list <-
-  legumes_accepted %>%
+species_list <-
+  accepted_species %>%
+  select(id=kew_id, family, genus, name=taxon_name, authors, one_of("section")) %>%
   left_join(
-    legume_assessments %>%
-      filter(! is.na(accepted_id)) %>%
-      select(accepted_id, taxon_id=internalTaxonId, 
-             assessment_id=assessmentId, category=redlistCategory,
-             criteria=redlistCriteria),
+    matched_assessments,
     by=c("id"="accepted_id")
-  )
-
-# clean up assessment categories
-legume_list <-
-  legume_list %>%
-  mutate(category=recode(category, 
-                         `Least Concern`="LC",
-                         `Data Deficient`="DD",
-                         `Near Threatened`="NT",
-                         `Vulnerable`="VU",
-                         `Endangered`="EN",
-                         `Critically Endangered`="CR",
-                         `Extinct`="EX"))
-
-# add genus for grouped cv
-legume_list <-
-  legume_list %>%
-  mutate(cv_group=str_extract(name, "^\\w+"))
-
-# save to file for analysis
-write_csv(legume_list, here("output/legume-rl_species-list.csv"))
-
-# make the same but with just SRLI legume assessments
-legume_list %>%
-  mutate(category=ifelse(! taxon_id %in% srli_legume_assessments$taxonid,
-                         NA_character_,
-                         category)) %>%
-  write_csv(here("output/legume-srli_species-list.csv"))
-
-# orchid names ----
-
-## get accepted species ----
-orchids_accepted <- search_wcvp(list(family="Orchidaceae"),
-                                filters=c("accepted", "species"),
-                                limit=50000)
-orchids_accepted <-
-  orchids_accepted %>%
-  tidy() %>%
-  select(id, name, author)
-
-## get IUCN RL assessments ----
-orchid_assessments <-
-  rl_assessments %>%
-  left_join(
-    rl_taxonomy %>% select(internalTaxonId, familyName, authority),
-    by="internalTaxonId"
   ) %>%
-  filter(familyName == "ORCHIDACEAE") %>%
-  filter(criteriaVersion == 3.1) %>%
-  select(assessmentId, internalTaxonId, scientificName, redlistCategory, redlistCriteria, assessmentDate)
+  distinct(id, .keep_all=TRUE)
 
-## match names to the WCVP ----
-matches <- match_knms(orchid_assessments$scientificName)
-matches <- tidy(matches)
-matches <- resolve_multiple_matches(
-  matches, 
-  match_file=here("output/name_matching/orchid_matches_multiples.csv"),
-  resolution_file=here("output/name_matching/orchid_matches_resolution.json")
-)
+if (exists("srli_file", mode="character")) {
+  srli_assessments <- read_excel(srli_file)
+  species_list <-
+    species_list %>%
+    mutate(srli=taxon_id %in% srli_assessments$taxonid)
+}
 
-matches <- filter(matches, matched)
+list_file <- file.path(output_dir, glue("{name}_species-list.csv"))
+write_csv(species_list, list_file)
 
-# knms is old so misses some of them
-unmatched <- 
-  orchid_assessments %>%
-  filter(! scientificName %in% matches$submitted)
-
-message(glue("Unable to match {nrow(unmatched)} names using KNMS"))
-
-manual_matches <- manually_match_names(
-  unmatched$scientificName, 
-  match_file=here("output/name_matching/orchid_manual_matches.json")
-)
-
-matched_names <-
-  matches %>%
-  select(submitted, match_id=ipni_id) %>%
-  bind_rows(
-    manual_matches %>% select(submitted, match_id=ipni_id)
-  ) %>%
-  left_join(
-    orchid_assessments %>% 
-      select(assessmentId, internalTaxonId, scientificName),
-    by=c("submitted"="scientificName")
-  ) 
-
-# lookup WCVP taxonomic info for matches
-matched_names <- 
-  matched_names %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  select(-wcvp)
-
-orchid_assessments <-
-  orchid_assessments %>%
-  left_join(matched_names, by=c("assessmentId", "internalTaxonId"))
-
-# save the whole matching results
-write_csv(orchid_assessments, here("output/name_matching/orchid_assessments_results.csv"))
-
-## join accepted names and assessments ----
-orchid_list <-
-  orchids_accepted %>%
-  left_join(
-    orchid_assessments %>%
-      filter(! is.na(accepted_id)) %>%
-      select(accepted_id, taxon_id=internalTaxonId, 
-             assessment_id=assessmentId, category=redlistCategory,
-             criteria=redlistCriteria),
-    by=c("id"="accepted_id")
-  )
-
-# clean up assessment categories
-orchid_list <-
-  orchid_list %>%
-  mutate(category=recode(category, 
-                         `Least Concern`="LC",
-                         `Data Deficient`="DD",
-                         `Near Threatened`="NT",
-                         `Vulnerable`="VU",
-                         `Endangered`="EN",
-                         `Critically Endangered`="CR",
-                         `Extinct`="EX"))
-
-# add genus for grouped cv
-orchid_list <-
-  orchid_list %>%
-  mutate(cv_group=str_extract(name, "^\\w+"))
-
-# save to file for analysis
-write_csv(orchid_list, here("output/orchid-rl_species-list.csv"))
+cli_alert_success("saved species list to {.file {list_file}}")
 
 # download distributions ----
-## myrcia ----
-myrcia_distribution <-
-  myrcia_list %>%
-  select(id, name) %>%
+
+distributions <-
+  species_list %>%
+  select(id, name, authors) %>%
   get_native_ranges(.wait=0.3) %>%
   unnest(cols=c(distribution))
 
-write_csv(myrcia_distribution, here("output/myrcia_distributions.csv"))
-
-## legumes ----
-legume_distribution <-
-  legume_list %>%
-  select(id, name) %>%
-  get_native_ranges(.wait=0.15) %>%
-  unnest(cols=c(distribution))
-
-write_csv(legume_distribution, here("output/legume_distributions.csv"))
-
-## orchids ----
-orchids_distribution <-
-  orchid_list %>%
-  select(id, name) %>%
-  get_native_ranges(.wait=0.15) %>%
-  unnest(cols=c(distribution))
-
-write_csv(orchids_distribution, here("output/orchid_distributions.csv"))
+distribution_file <- file.path(output_dir, glue("{name}_distributions.csv"))
+write_csv(distributions, distribution_file)
+cli_alert_success("saved species distributions to {.file {distribution_file}}")
