@@ -8,566 +8,296 @@
 #' At some point I changed from using `readr` to `vroom`, which lightens the
 #' load significantly for big datasets.
 #' 
+#' EXPECTED INPUTS:
+#'  - `output_dir`: path to a directory to save processed occurrences to
+#'  - `wcvp_dir`: path to a directory containing a download of WCVP or to download the latest WCVP into
+#'  - `download_key`: GBIF dataset download key, will be ignored if path to an occurrence file is provided
+#'  - `occurrence_file`: path to an occurrence file to process
+#'  - `species_list`: path to a file containing a list of accepted species, possibly created by `analysis/02_collate_species.R`
+#' 
+#' EXAMPLE CLI:
+#'  Rscript analysis/03_process_occurrences.R --download_key=0132231-210914110416597 --species_list=output/species-lists/myrcia_species-list.csv
+#' 
+#' EXAMPLE SOURCE:
+#'  output_dir <- "output/occurrence-records"
+#'  wcvp_dir <- "data/wcvp"
+#'  download_key <- "0132231-210914110416597"
+#'  species_list <- "output/species-lists/myrcia_species-list.csv"
+#'  source("analysis/03_process_occurrences.csv")
 
 # libraries ----
-library(here)     # handle file paths
-library(dplyr)    # manipulate data
-library(tidyr)    # reshape data
-library(vroom)    # fast reading/writing text files
-library(purrr)    # map functions across data
-library(stringr)  # manipulate strings
-library(glue)     # string interpolation
-library(kewr)     # access Kew's data APIs
+shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(here)     # handle file paths
+shhlibrary(cli)      # nice command line interfaces
+shhlibrary(dplyr)    # manipulate data
+shhlibrary(tidyr)    # reshape data
+shhlibrary(vroom)    # fast reading/writing text files
+shhlibrary(purrr)    # map functions across data
+shhlibrary(stringr)  # manipulate strings
+shhlibrary(glue)     # string interpolation
+shhlibrary(kewr)     # access Kew's data APIs
+shhlibrary(readr)    # read/write text files
 
 source(here("R/requests_functions.R"))
 source(here("R/name_functions.R"))
 
-# set occurrence file paths ----
-myrcia_gbif_path <- here("data/gbif-myrtaceae_2021-03-15/")
-legume_gbif_path <- here("data/gbif-legumes_2021-03-15/")
-orchid_gbif_path <- here("data/gbif-orchids_2021-03-15/")
+# CLI ----
+cli_h1("Matching occurrence records to species list")
 
-# load GBIF points ----
-col_names <- c("gbifID", "genus", "species", "taxonRank",
+if (sys.nframe() == 0L) {
+  default_args <- list(
+    output_dir="output/occurrence-records",
+    wcvp_dir="data/wcvp"
+  )
+  args <- R.utils::commandArgs(asValues=TRUE,
+                               excludeReserved=TRUE, excludeEnvVars=TRUE,
+                               defaults=default_args)
+  
+  occurrence_file <- args$occurrence_file
+  download_key <- args$download_key
+  wcvp_dir <- args$wcvp_dir
+  output_dir <- args$output_dir
+  species_list <- args$species_list
+}
+
+if (! exists("occurrence_file", mode="character") & ! exists("download_key", mode="character")) {
+  cli_abort(c(
+    "No occurrence file or download url",
+    "x"="You must either provide an {.var occurrence_file} path or a GBIF {.var download_key}."
+  ))
+}
+
+if (exists("occurrence_file", mode="character") & exists("download_key", mode="character")) {
+  cli_alert_warning("Values for both {.var occurrence_file} and {.var download_key} given, only using {.var occurrence_file}")
+}
+
+if (! exists("output_dir")) {
+  cli_abort(c(
+    "no path to save processed occurrences",
+    "x"="You must provide the save path as the variable {.var output_dir}."
+  ))
+}
+
+if (! exists("wcvp_dir")) {
+  cli_abort(c(
+    "no path to WCVP",
+    "x"="You must provide a path to a download of the WCVP, or a path to download WCVP to, as {.var wcvp_dir}."
+  ))
+}
+
+if (! exists("species_list", mode="character")) {
+  cli_abort(c(
+    "no path to species list",
+    "x"="You must provide a path to a species list to match occurrences against, as {.var species_list}."
+  ))
+}
+
+name <- str_extract(basename(species_list), "\\w+(?=_)")
+
+cli_alert_info("Processing occurrences for {.val {name}} species")
+
+dir.create(output_dir, showWarnings=FALSE)
+cli_alert_info("Saving species list to {.file {output_dir}}.")
+
+# load occurrences ----
+cli_h2("Loading data")
+
+gbif_cols <- c("gbifID", "genus", "species", "taxonRank",
                "scientificName", "countryCode",
                "decimalLatitude", "decimalLongitude",
                "day", "month", "year", "taxonKey", 
                "speciesKey", "basisOfRecord", "issue")
 
-## Myrtaceae occurrences ----
-myrt_path <- list.files(myrcia_gbif_path, full.names=TRUE)
-myrcia_occurrences <- vroom(myrt_path, delim="\t", 
-                            col_select=all_of(col_names), quote="")
+if (exists("download_key", mode="character")) {
+  occurrence_file <- get_gbif_dataset(download_key, "data")
+  cli_alert_success("Downloaded GBIF occurrence dataset to {.file {occurrence_file}}.")
+}
 
-## legume occurrences ----
-legume_path <- list.files(legume_gbif_path, full.names=TRUE)
-legume_occurrences <- vroom(legume_path, delim="\t", quote="",
-                            col_select=all_of(col_names))
+source <- ifelse(str_detect(basename(occurrence_file), "-db_"), "db", "gbif") 
 
-## Orchid occurrences ----
-orchid_path <- list.files(orchid_gbif_path, full.names=TRUE)
-orchid_occurrences <- vroom(orchid_path, delim="\t", 
-                            col_select=all_of(col_names), quote="")
+if (source == "gbif") {
+  occurrences <- vroom(occurrence_file, delim="\t", col_select=all_of(gbif_cols),
+                       quote="", show_col_type=FALSE, progress=FALSE)
+} else if (source == "db") {
+  occurrences <- load_monographic_db(occurrence_file)
+}
 
-# load species list data ----
+cli_alert_success("Loaded {.strong {nrow(occurrences)}} occurrences from {.file {occurrence_file}}.")
 
-myrcia_species <- vroom(here("output/myrcia-rl_species-list.csv"))
-legume_species <- vroom(here("output/legume-rl_species-list.csv"))
-orchid_species <- vroom(here("output/orchid-rl_species-list.csv"))
+# load species list ----
+species <- vroom(species_list, show_col_type=FALSE, progress=FALSE)
 
-# match myrcia names ----
+cli_alert_success("Loaded list of {.strong {nrow(species)}} species from {.file {species_list}}.")
 
-myrcia_occurrences <- 
-  myrcia_occurrences %>%
-  filter(str_detect(scientificName, "^(Myrcia|Calyptranthes|Marlierea|Mitranthes|Gomidesia) [a-z]")) %>%
-  mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
+# load WCVP ----
+dir.create(wcvp_dir, showWarnings=FALSE)
 
-## match to WCVP with author ----
-unique_names <- 
-  myrcia_occurrences %>%
+if (! exists("version", mode="numeric")) {
+  version <- NULL
+}
+
+wcvp <- get_wcvp(wcvp_dir, version=version)
+
+# match occurrence names ----
+occurrences <- 
+  occurrences %>%
+  filter(!taxonRank %in% c("FAMILY", "GENUS", "UNRANKED")) %>%
+  filter(!str_detect(scientificName, "\\u00d7")) 
+
+if (!"name" %in% colnames(occurrences)) {
+  occurrences <-
+    occurrences %>%
+    mutate(name=str_extract(scientificName, "[A-Z][a-z\\-]+ [a-z\\-]+( var. [a-z\\-]+| f. [a-z\\-]+| subsp. [a-z\\-]+)?"))
+}
+
+unique_names <-
+  occurrences %>%
   distinct(scientificName, taxonKey)
 
+## exact match with full name string ----
+cli_h2("Matching names with author string to WCVP")
 matches1 <- 
-  unique_names$scientificName %>%
-  match_knms() %>%
-  tidy() %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
+  unique_names %>%
+  match_names_exactly(wcvp, id_col="taxonKey", name_col="scientificName", with_author=TRUE) %>%
+  filter(! is.na(match_id)) %>%
+  left_join(unique_names, by=c("original_id"="taxonKey")) %>%
+  rename("original_name"="scientificName")
 
-## match to WCVP without author ----
 unmatched <- 
-  myrcia_occurrences %>%
-  filter(! scientificName %in% matches1$submitted)
-
-names_to_match <- 
-  unmatched %>%
+  occurrences %>%
+  filter(! scientificName %in% matches1$match_name) %>%
   distinct(name, taxonKey)
 
+## exact match without author string ----
+cli_h2("Matching remaining names without author string to WCVP")
 matches2 <- 
-  names_to_match$name %>%
-  match_knms() %>%
-  tidy() %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
+  unmatched %>%
+  match_names_exactly(wcvp, id_col="taxonKey", name_col="name") %>%
+  filter(! is.na(match_id)) %>%
+  left_join(unmatched, by=c("original_id"="taxonKey")) %>%
+  rename("original_name"="name")
 
-## exact match to WCVP for things KNMS missed ----
+unmatched <-
+  unmatched %>%
+  filter(! name %in% matches2$match_name)
+
+## match with KNMS ----
+cli_h2("Matching remaining names loosely with KNMS")
+
 matches3 <-
   unmatched %>%
-  filter(! name %in% matches2$submitted) %>%
-  distinct(taxonKey, name) %>%
-  left_join(
-    myrcia_species %>%
-      select(name, id),
-    by="name"
-  ) %>%
-  filter(! is.na(id)) %>%
-  rename(submitted=name, match_id=id)
+  match_names_loosely(wcvp, id_col="taxonKey", name_col="name") %>%
+  filter(! is.na(match_id)) %>%
+  left_join(unmatched, by=c("original_id"="taxonKey")) %>%
+  rename("original_name"="name")
 
 ## resolve multiple matches ----
-matches1 <-
+cli_h2("Resolving multiple matches")
+
+resolved_matches1 <-
   matches1 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
   resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
+  filter(match_status %in% c("Accepted", "Homotypic_Synonym")) %>%
+  group_by(original_name) %>%
+  group_modify(~resolve_multiple_matches_auto(.x, .y$original_name)) %>%
   ungroup() %>%
   # remove anything unresolved
-  add_count(submitted) %>%
+  add_count(original_id) %>%
   filter(n == 1) %>%
-  ungroup()
-
-matches1 <-
-  matches1 %>%
-  left_join(unique_names, by=c("submitted"="scientificName"))
-
-matches2 <-
-  matches2 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  ungroup()
-
-matches2 <-
-  matches2 %>%
-  left_join(names_to_match, by=c("submitted"="name"))
-
-matches3 <- 
-  matches3 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_()
-
-matched_names <-
-  matches1 %>%
-  bind_rows(matches2) %>%
-  bind_rows(matches3) %>%
   select(-n)
 
+resolved_matches2 <-
+  matches2 %>%
+  resolve_accepted_() %>%
+  filter(match_status %in% c("Accepted", "Homotypic_Synonym")) %>%
+  group_by(original_name) %>%
+  group_modify(~resolve_multiple_matches_auto(.x, .y$original_name)) %>%
+  ungroup() %>%
+  # remove anything unresolved
+  add_count(original_id) %>%
+  filter(n == 1) %>%
+  select(-n)
+
+resolved_matches3 <- 
+  matches3 %>%
+  resolve_accepted_() %>%
+  filter(match_status %in% c("Accepted", "Homotypic_Synonym")) %>%
+  group_by(original_name) %>%
+  group_modify(~resolve_multiple_matches_auto(.x, .y$original_name)) %>%
+  ungroup() %>%
+  # remove anything unresolved
+  add_count(original_id) %>%
+  filter(n == 1) %>%
+  select(-n)
+
+matched_names <-
+  resolved_matches1 %>%
+  bind_rows(resolved_matches2) %>%
+  bind_rows(resolved_matches3) %>%
+  filter(accepted_rank %in% c("SPECIES", "VARIETY", "SUBSPECIES"))
+
+unmatched <- sum(!unique(occurrences$taxonKey) %in% matched_names$original_id)
+total <- length(unique(occurrences$taxonKey))
+
+cli_alert_success("Matched {.strong {nrow(matched_names)}} of {.strong {total}} names after resolution.")
+cli_alert_warning("{.strong {unmatched}} names could not be matched.")
+
 ## get parent ID for infraspecifics ----
+
 matched_names <-
   matched_names %>% 
-  get_parent_ids(accepted_id) %>%
+  left_join(
+    wcvp %>% select(kew_id, parent_kew_id), 
+    by=c("accepted_id"="kew_id")) %>%
   mutate(species_id=case_when(is.na(accepted_rank) ~ NA_character_,
-                              accepted_rank != "Species" ~ parent_id,
+                              accepted_rank != "SPECIES" ~ parent_kew_id,
                               TRUE ~ accepted_id)) %>%
-  select(-wcvp, -parent_id)
+  select(-parent_kew_id)
 
 ## save matching details ----
 unmatched_names <-
-  myrcia_occurrences %>%
-  filter(! taxonKey %in% matched_names$taxonKey) %>%
-  select(taxonKey, submitted=scientificName) %>%
-  distinct(taxonKey, submitted)
+  occurrences %>%
+  filter(! taxonKey %in% matched_names$original_id) %>%
+  select(original_id=taxonKey, original_name=scientificName) %>%
+  distinct(original_id, original_name)
 
+
+match_file <- file.path(output_dir, glue("{name}-{source}_name-matches.csv"))
 matched_names %>%
   bind_rows(
     unmatched_names
   ) %>%
-  write_csv(here("output/name_matching/myrcia-gbif_name-matches.csv"))
+  write_csv(match_file)
 
-## add WCVP IDs to GBIF occurrences ----
+cli_alert_success("Saved matching details to {.file {match_file}}.")
 
-myrcia_occurrences %>%
-  left_join(
+# add WCVP IDs to GBIF occurrences ----
+cli_h2("Processing occurrences")
+
+matched_occurrences <-
+  occurrences %>%
+  inner_join(
     matched_names %>%
       filter(! is.na(species_id)) %>%
-      select(taxonKey, species_id),
-    by=c("taxonKey")
+      select(original_id, species_id),
+    by=c("taxonKey"="original_id")
   ) %>%
-  filter(! is.na(species_id)) %>% 
   inner_join(
-    myrcia_species %>%
+    species %>%
       select(id, wcvp_name=name),
     by=c("species_id"="id")
-  ) %>%
+  )
+
+processed_occurrences <-
+  matched_occurrences %>%
   mutate(hasCoordinate=! is.na(decimalLatitude) & ! is.na(decimalLongitude)) %>%
   mutate(hasGeospatialIssue=str_detect(issue, "(ZERO_COORDINATE|COORDINATE_INVALID|COORDINATE_OUT_OF_RANGE|COUNTRY_COORDINATE_MISMATCH)")) %>%
   replace_na(list(hasGeospatialIssue=FALSE)) %>%
   select(specimen_id=gbifID, specimen_name=scientificName, decimalLatitude, decimalLongitude, 
-         basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
-    write_csv(here("output/myrcia-gbif_occurrences.csv"))
+         basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name)
 
-# match monographic database names ----
+cli_alert_success("Left with {.strong {nrow(processed_occurrences)}} records for {.strong {length(unique(processed_occurrences$wcvp_name))}} species.")
 
-# these should largely be fine
-names_to_match <- unique(myrcia_db$species)
-
-## match to WCVP ----
-matches <- 
-  names_to_match %>%
-  match_knms() %>%
-  tidy() %>%
-  filter(matched)
-
-unmatched <- 
-  myrcia_db %>%
-  filter(! species %in% matches$submitted)
-
-manual_matches <- manually_match_names(
-  unique(unmatched$species),
-  match_file=here("data/myrcia_db_manual_matches.json")
-)
-
-matched_names <-
-  matches %>%
-  bind_rows(manual_matches) %>%
-  select(submitted, match_id=ipni_id)
-
-## resolve multiple matches ----
-matched_names <-
-  matched_names %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  select(-n)
-
-## get parent ID for infraspecifics ----
-matched_names <-
-  matched_names %>% 
-  get_parent_ids(accepted_id) %>%
-  mutate(species_id=case_when(is.na(accepted_rank) ~ NA_character_,
-                              accepted_rank != "Species" ~ parent_id,
-                              TRUE ~ accepted_id)) %>%
-  select(-wcvp, -parent_id)
-
-## save matching details ----
-unmatched_names <-
-  myrcia_db %>%
-  filter(! species %in% matched_names$submitted) %>%
-  select(submitted=species) %>%
-  distinct(submitted)
-
-matched_names %>%
-  bind_rows(
-    unmatched_names
-  ) %>%
-  write_csv(here("output/name_matching/myrcia-db_name-matches.csv"))
-
-## add WCVP IDs to occurrences ----
-
-# add accepted species keys to occurrences for monographic database
-myrcia_db %>%
-  left_join(
-    matched_names %>%
-      filter(! is.na(species_id)) %>%
-      select(submitted, species_id),
-    by=c("species"="submitted")
-  ) %>%
-  # give a specimen id to flag that they're from the db
-  mutate(specimen_id=glue("myrciadb_{specimen_id}")) %>%
-  # all of these are herbarium specimens
-  mutate(basisOfRecord="PRESERVED_SPECIMEN") %>%
-  filter(! is.na(species_id)) %>%
-  inner_join(
-    myrcia_species %>%
-      select(id, wcvp_name=name),
-    by=c("species_id"="id")
-  ) %>%
-  mutate(hasCoordinate=! is.na(decimalLatitude) & ! is.na(decimalLongitude)) %>%
-  mutate(hasGeospatialIssue=FALSE) %>%
-  select(specimen_id, specimen_name=species, decimalLatitude, decimalLongitude, 
-         basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
-  write_csv(here("output/myrcia-db_occurrences.csv"))
-
-# match legume names ----
-legume_occurrences <- 
-  legume_occurrences %>%
-  filter(!taxonRank %in% c("FAMILY", "GENUS", "UNRANKED")) %>%
-  filter(!str_detect(scientificName, "×")) %>%
-  mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
-
-## match to WCVP with author ----
-unique_names <- 
-  legume_occurrences %>%
-  distinct(scientificName, taxonKey)
-
-matches1 <- 
-  unique_names %>%
-  match_knms_chunked(scientificName) %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
-
-## match to WCVP without author ----
-unmatched <- 
-  legume_occurrences %>%
-  filter(! scientificName %in% matches1$submitted)
-
-names_to_match <- 
-  unmatched %>%
-  distinct(name, taxonKey)
-
-matches2 <- 
-  names_to_match %>%
-  match_knms_chunked(name) %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
-
-## exact match to WCVP for things KNMS missed ----
-matches3 <-
-  unmatched %>%
-  filter(! name %in% matches2$submitted) %>%
-  distinct(taxonKey, name) %>%
-  left_join(
-    legume_species %>%
-      select(name, id),
-    by="name"
-  ) %>%
-  filter(! is.na(id)) %>%
-  rename(submitted=name, match_id=id)
-
-## resolve multiple matches ----
-matches1 <-
-  matches1 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  ungroup()
-
-matches1 <-
-  matches1 %>%
-  left_join(unique_names, by=c("submitted"="scientificName"))
-
-matches2 <-
-  matches2 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  ungroup()
-
-matches2 <-
-  matches2 %>%
-  left_join(names_to_match, by=c("submitted"="name"))
-
-matches3 <- 
-  matches3 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_()
-
-matched_names <-
-  matches1 %>%
-  bind_rows(matches2) %>%
-  bind_rows(matches3) %>%
-  select(-n)
-
-## get parent ID for infraspecifics ----
-matched_names <-
-  matched_names %>% 
-  get_parent_ids(accepted_id) %>%
-  mutate(species_id=case_when(is.na(accepted_rank) ~ NA_character_,
-                              accepted_rank != "Species" ~ parent_id,
-                              TRUE ~ accepted_id)) %>%
-  select(-wcvp, -parent_id)
-
-## save matching details ----
-unmatched_names <-
-  legume_occurrences %>%
-  filter(! taxonKey %in% matched_names$taxonKey) %>%
-  select(taxonKey, submitted=scientificName) %>%
-  distinct(taxonKey, scientificName)
-
-matched_names %>%
-  bind_rows(
-    unmatched_names
-  ) %>%
-  write_csv(here("output/name_matching/legume-gbif_name-matches.csv"))
-
-## add WCVP IDs to GBIF occurrences ----
-
-legume_ids <- 
-  legume_species %>%
-  filter(! is.na(id)) %>%
-  pull(id)
-
-legume_occurrences %>%
-  left_join(
-    matched_names %>%
-      filter(! is.na(species_id)) %>%
-      select(taxonKey, species_id),
-    by=c("taxonKey")
-  ) %>%
-  filter(! is.na(species_id)) %>% 
-  inner_join(
-    legume_species %>%
-      select(id, wcvp_name=name),
-    by=c("species_id"="id")
-  ) %>%
-  mutate(hasCoordinate=! is.na(decimalLatitude) & ! is.na(decimalLongitude)) %>%
-  mutate(hasGeospatialIssue=str_detect(issue, "(ZERO_COORDINATE|COORDINATE_INVALID|COORDINATE_OUT_OF_RANGE|COUNTRY_COORDINATE_MISMATCH)")) %>%
-  replace_na(list(hasGeospatialIssue=FALSE)) %>%
-  select(specimen_id=gbifID, specimen_name=scientificName, decimalLatitude, decimalLongitude, 
-         basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
-  write_csv(here("output/legume-gbif_occurrences.csv"))
-
-# match orchid names ----
-
-orchid_occurrences <- 
-  orchid_occurrences %>%
-  filter(!taxonRank %in% c("FAMILY", "GENUS", "UNRANKED")) %>%
-  filter(!str_detect(scientificName, "×")) %>%
-  mutate(name=str_extract(scientificName, "[A-Z][a-z]+ [a-z]+( var. [a-z]+| f. [a-z]+| subsp. [a-z]+)?"))
-
-## match to WCVP with author ----
-unique_names <- 
-  orchid_occurrences %>%
-  distinct(scientificName, taxonKey)
-
-matches1 <- 
-  unique_names %>%
-  match_knms_chunked(scientificName) %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
-
-## match to WCVP without author ----
-unmatched <- 
-  orchid_occurrences %>%
-  filter(! scientificName %in% matches1$submitted)
-
-names_to_match <- 
-  unmatched %>%
-  distinct(name, taxonKey)
-
-matches2 <- 
-  names_to_match %>%
-  match_knms_chunked(name) %>%
-  filter(matched) %>%
-  select(submitted, match_id=ipni_id)
-
-## exact match to WCVP for things KNMS missed ----
-matches3 <-
-  unmatched %>%
-  filter(! name %in% matches2$submitted) %>%
-  distinct(taxonKey, name) %>%
-  left_join(
-    orchid_species %>%
-      select(name, id),
-    by="name"
-  ) %>%
-  filter(! is.na(id)) %>%
-  rename(submitted=name, match_id=id)
-
-## resolve multiple matches ----
-matches1 <-
-  matches1 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  ungroup()
-
-matches1 <-
-  matches1 %>%
-  left_join(unique_names, by=c("submitted"="scientificName"))
-
-matches2 <-
-  matches2 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_() %>%
-  group_by(submitted) %>%
-  group_modify(~resolve_multiple_matches_auto(.x, .y$submitted)) %>%
-  ungroup() %>%
-  # remove anything unresolved
-  add_count(submitted) %>%
-  filter(n == 1) %>%
-  ungroup()
-
-matches2 <-
-  matches2 %>%
-  left_join(names_to_match, by=c("submitted"="name"))
-
-matches3 <- 
-  matches3 %>%
-  get_accepted_info(.wait=0.1) %>%
-  mutate(info=extract_wcvp_(wcvp)) %>%
-  unnest(cols=c(info)) %>%
-  resolve_accepted_()
-
-matched_names <-
-  matches1 %>%
-  bind_rows(matches2) %>%
-  bind_rows(matches3) %>%
-  select(-n)
-
-## get parent ID for infraspecifics ----
-matched_names <-
-  matched_names %>% 
-  get_parent_ids(accepted_id) %>%
-  mutate(species_id=case_when(is.na(accepted_rank) ~ NA_character_,
-                              accepted_rank != "Species" ~ parent_id,
-                              TRUE ~ accepted_id)) %>%
-  select(-wcvp, -parent_id)
-
-## save matching details ----
-unmatched_names <-
-  orchid_occurrences %>%
-  filter(! taxonKey %in% matched_names$taxonKey) %>%
-  select(taxonKey, submitted=scientificName) %>%
-  distinct(taxonKey, submitted)
-
-matched_names %>%
-  bind_rows(
-    unmatched_names
-  ) %>%
-  write_csv(here("output/name_matching/orchid-gbif_name-matches.csv"))
-
-## add WCVP IDs to GBIF occurrences ----
-
-orchid_occurrences %>%
-  left_join(
-    matched_names %>%
-      filter(! is.na(species_id)) %>%
-      select(taxonKey, species_id),
-    by=c("taxonKey")
-  ) %>%
-  filter(! is.na(species_id)) %>% 
-  inner_join(
-    orchid_species %>%
-      select(id, wcvp_name=name),
-    by=c("species_id"="id")
-  ) %>%
-  mutate(hasCoordinate=! is.na(decimalLatitude) & ! is.na(decimalLongitude)) %>%
-  mutate(hasGeospatialIssue=str_detect(issue, "(ZERO_COORDINATE|COORDINATE_INVALID|COORDINATE_OUT_OF_RANGE|COUNTRY_COORDINATE_MISMATCH)")) %>%
-  replace_na(list(hasGeospatialIssue=FALSE)) %>%
-  select(specimen_id=gbifID, specimen_name=name, decimalLatitude, decimalLongitude, 
-         basisOfRecord, hasGeospatialIssue, hasCoordinate, wcvp_id=species_id, wcvp_name) %>%
-  write_csv(here("output/orchid-gbif_occurrences.csv"))
+final_file <- file.path(output_dir, glue("{name}-{source}_occurrences.csv"))
+write_csv(processed_occurrences, final_file)
+cli_alert_success("Saved processed occurrences to {.file {final_file}}.")
