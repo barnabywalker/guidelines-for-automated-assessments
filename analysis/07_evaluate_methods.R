@@ -17,7 +17,7 @@
 #'  5. Random forest - more complex machine learning model that is an ensemble of decision trees trained
 #'                     using random subsets of the data and random subsets of the predictors. 
 #'                     Out-of-sample performance estimated by 10x 5-fold CV.
-#'  6. Neural network - Following the procedure of IUCNN, using cross-validation to tune the 
+#'  6. Neural network (IUCNN) - Following the procedure of IUCNN, using cross-validation to tune the 
 #'                      number of size of layers, the amount of dropout, and the number of training epochs.
 #'                      Due to relatively tight data budget, using nested CV with 3-fold inner resamples
 #'                      to tune hyperparameters and 10x 5-fold CV to estimate out-of-sample performance.
@@ -28,40 +28,165 @@
 #'  - fitting logistic regressions to relate accuracy to the number of occurrence records for a species.
 #'  - training the model on increasingly big subsamples of the data and measuring performance, to see
 #'    how it changes with number of training examples.
-#'  - permutation feature importance for the random forest model, calculated during training and on the test
+#'  - permutation feature importance for the random forest and IUCNN models, calculated during training and on the test
 #'    sets in each CV fold.
+#'  - SHapely Additive exPlanations (SHAPs) for the random forest and IUCNN models, to estimate the contribution of each
+#'    predictor to the predicted probability of being threatened for each species in the test sets.
+#' 
+#' Block cross-validation can be used for the machine-learning based methods, instead of random cross-validation, using a
+#' user-specified column to group the data into folds.
 #' 
 #' As well as these evaluation outputs, the test set predictions, unlabelled species predictions,
 #' and the trained models are saved as outputs.
 #' 
 #' EXPECTED INPUTS:
-#'  - `predictor_file`: path to a file containing predictors calculated for a set of species
-#'  - `output_dir`: path to a directory to save outputs to (must exist)
-#'  - `model_dir`: path to a directory to save trained models to (must exist)
-#'  - `output_name`: string to use as the start of each filename, to identify the experiment
+#'  - `output_dir`: path to a directory to save outputs to
+#'  - `model_dir`: path to a directory to save trained models to
+#'  - `method_dir`: path to a directory containing scripts that specify each method
+#'  - `predictor_file`: path to a file containing predictors calculated for a set of species,
+#'          possibly an output from `analysis/06_prepare_predictors.R`
+#' 
+#' OPTIONAL INPUTS:
+#'  - `downsample`: boolean, whether to downsample species in the training set so the number 
+#'          of threatened and not threatened species is the same
+#'  - `random_seed`: an integer to set the random seed to ensure reproducibility. set as NULL if you don't want a seed.
+#'  - `srli`: boolean, whether to use SRLI assessments or all the assessments provided
+#'  - `cv_group`: the name of a column to group species into folds for block cross-validation. will use random cross-validation
+#'          if NULL
+#' 
+#' EXAMPLE CLI:
+#'  Rscript analysis/07_evaluate_methods.R --predictor_file=output/predictors/myrcia-gbif_filter-1_clean-A.csv --method=random-forest --cv_group=section --downsample
+#' 
+#' EXAMPLE SOURCE:
+#'  output_dir <- "output/method-results"
+#'  model_dir <- "output/trained-models"
+#'  method_dir <- "methods"
+#'  predictor_file <- "output/predictors/myrcia-gbif_filter-1_clean-A.csv"
+#'  random_seed <- 1989
+#'  cv_group <- "section"
+#'  downsample <- TRUE
+#'  source("analysis/07_evaluate_methods.R")
+#' 
 
 # libraries ----
-library(here)         # handle file paths
-library(vroom)        # fast reading/writing for text files
-library(readr)        # read/write text and data files
-library(dplyr)        # manipulate data
-library(tidymodels)   # reproducible interface for statistical modelling
-library(keras)        # a nice interface to tensorflow for neural nets
-library(tfdatasets)   # data handling between R and tensorflow
-library(vip)
-library(furrr)        # map functions across data in parallel
-library(glue)         # string interpolation
+shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(here)         # handle file paths
+shhlibrary(vroom)        # fast reading/writing for text files
+shhlibrary(readr)        # read/write text and data files
+shhlibrary(dplyr)        # manipulate data
+shhlibrary(tidymodels)   # reproducible interface for statistical modelling
+shhlibrary(tidyassessments)  # tidymodels interface to rule-based and IUCNN methods
+shhlibrary(glue)         # string interpolation
+shhlibrary(cli)          # nice command line interfaces
+shhlibrary(stringr)      # manipulate strings
+shhlibrary(multidplyr)   # parallelise data manipulation
 
-source(here("R/model_functions.R"))
+# CLI ----
+cli_h1("Evaluating automated assessment method")
 
-# set up parallel processing ----
-all_cores <- parallel::detectCores()
-plan(multisession, workers = all_cores)
+if (sys.nframe() == 0L) {
+  default_args <- list(
+    output_dir="output/method-results",
+    method_dir="methods",
+    model_dir="output/trained-models",
+    downsample=FALSE,
+    random_seed=1989,
+    srli=FALSE
+  )
+  args <- R.utils::commandArgs(asValues=TRUE,
+                               excludeReserved=TRUE, excludeEnvVars=TRUE,
+                               defaults=default_args)
+  
+  output_dir <- args$output_dir
+  method <- args$method
+  predictor_file <- args$predictor_file
+  cv_group <- args$cv_group
+  downsample <- args$downsample
+  method_dir <- args$method_dir
+  model_dir <- args$model_dir
+  srli <- args$srli
+}
+
+if (! exists("srli")) {
+  srli <- FALSE
+}
+
+if (! exists("cv_group")) {
+  cv_group <- NULL
+}
+
+if (! exists("downsample", mode="logical")) {
+  downsample <- FALSE
+}
+
+if (! exists("random_seed")) {
+  random_seed <- NULL
+}
+
+if (! exists("predictor_file", mode="character")) {
+  cli_abort(c(
+    "no path to predictors provided",
+    "x"="You must provide a path to a file of species-level predictors as {.var predictor_file}."
+  ))
+}
+
+if (! exists("method", mode="character")) {
+  cli_abort(c(
+    "no method provided",
+    "x"="You must specify which automated assessment method to evaluate as {.var method}."
+  ))
+}
+
+if (! exists("output_dir")) {
+  cli_abort(c(
+    "no path to save results provided",
+    "x"="You must provide the save path as the variable {.var output_dir}."
+  ))
+}
+
+if (! exists("model_dir")) {
+  cli_abort(c(
+    "no path to save trained models provided",
+    "x"="You must provide the save path as the variable {.var model_dir}."
+  ))
+}
+
+available_methods <- 
+  method_dir %>%
+  list.files() %>%
+  str_remove("\\.R")
+
+if (! method %in% available_methods) {
+  cli_abort(c(
+    "unrecognised method",
+    x="No implementation for method found, implement it yourself or use one of {.var {available_methods}}."
+  ))
+}
+
+source(file.path(method_dir, glue("{method}.R")))
+
+dir.create(output_dir, showWarnings=FALSE)
+dir.create(model_dir, showWarnings=FALSE)
+
+name <- glue("{str_remove(basename(predictor_file), '\\\\.csv')}", 
+             "downsample-{ifelse(downsample, 'yes', 'no')}",
+             "cv-{ifelse(is.null(cv_group), 'random', 'grouped')}",
+             "target-{ifelse(srli, 'srli', 'rl')}",
+             .sep="_")
+
+cli_alert_info("Evaluating {.strong {method}} method on {.file {predictor_file}}")
+cli_alert_info("Saving results to {.file {output_dir}}")
 
 # load predictors ----
-predictors <- vroom(predictor_file)
+predictors <- vroom(predictor_file, show_col_types=FALSE, progress=FALSE)
 
 # prepare data ----
+if (srli) {
+  predictors <-
+    predictors %>%
+    mutate(category=ifelse(srli, category, NA_character_))
+}
+
 labelled <- filter(predictors, ! is.na(category), category != "DD")
 unlabelled <- filter(predictors, is.na(category) | category == "DD")
 
@@ -70,14 +195,40 @@ labelled$obs <- factor(labelled$obs, levels=c("threatened", "not threatened"))
 
 unlabelled$obs <- factor(NA, levels=levels(labelled$obs), ordered=TRUE)
 
-# define data budget ----
-set.seed(1989)
-threshold_splits <- bootstraps(labelled, times=50)
+pct_threat <- mean(labelled$obs == 'threatened')
 
-if (group_cv) {
-  ml_splits <- nested_cv(labelled, inside=vfold_cv(v=3), outside=group_vfold_cv(group=cv_group, v=10))
+cli_alert_info("Evaluating the method on {.strong {nrow(labelled)}} examples ({.strong {label_percent()(pct_threat)}} threatened).")
+
+# define data budget ----
+set.seed(random_seed)
+
+if (! is.null(cv_group)) {
+  ngroups <- 
+    labelled %>%
+    pull(cv_group) %>%
+    unique() %>%
+    length()
+
+  if (ngroups < 5) {
+    nfolds <- 3
+  } else if (ngroups < 10) {
+    nfolds <- 5
+  } else {
+    nfolds <- 10
+  }
+  
+  splits <- nested_cv(labelled, inside=vfold_cv(v=3), outside=group_vfold_cv(group=cv_group, v=nfolds))
+  cli_alert_info("Evaluating method by nested CV, 3 inside folds and {nfolds} outside folds grouped by {cv_group}")
+} else if (METHOD_TYPE == "machine-learning") {
+  splits <- nested_cv(labelled, inside=vfold_cv(v=3), outside=vfold_cv(v=5, repeats=10))
+  cli_alert_info("Evaluating method by nested CV, 3 inside folds and 10 repeats of 5 outside folds")
 } else {
-  ml_splits <- nested_cv(labelled, inside=vfold_cv(v=3), outside=vfold_cv(v=5, repeats=10))
+  splits <- bootstraps(labelled, times=50)
+  cli_alert_info("Evaluating method using 50 bootstrap resamples")
+}
+
+if (! "id2" %in% colnames(splits)) {
+  splits$id2 <- NA_character_
 }
 
 # define evalutaion metrics ----
@@ -91,153 +242,149 @@ eval_metrics <- metric_set(accuracy, sens, spec, j_index)
 # define sample sizes for learning curves ----
 breaks <- seq(from=50, to=175, by=25)
 
-# eoo threshold method ----
+# set up cluster ----
+ncores <- parallelly::availableCores()
+cluster <- new_cluster(ncores)
+cli_alert_info("Using {.strong {ncores}} cores")
 
-## predict on bootstraps ----
-threshold_test_predictions <-
-  threshold_splits %>%
-  mutate(.pred=future_map(splits, predict_iucn)) %>%
-  select(id, .pred) %>%
-  unnest(cols=c(.pred))
+cluster_library(cluster, packages=c("dplyr", "tidymodels", "tidyassessments", "keras",
+                                    "vip", "fastshap"))
 
-## evaluate performance ----
-threshold_performance <-
-  threshold_test_predictions %>%
-  group_by(id) %>%
-  eval_metrics(truth=obs, estimate=.pred_class) %>%
-  ungroup() %>%
-  # add an extra column to match other files
-  mutate(id2=NA_character_) %>%
-  select(id, id2, .metric, .estimate)
+# set up model ----
+model_spec <- specify_model()
+model_recipe <- specify_recipe(labelled, downsample=downsample)
+wf <-
+  workflow() %>%
+  add_model(model_spec) %>%
+  add_recipe(model_recipe)
 
-## predict unlabelled data ----
-threshold_predictions <-
-  predict_iucn(unlabelled)
-
-## model accuracy against number of specimens ----
-threshold_accuracy_models <-
-  threshold_test_predictions %>%
-  left_join(
-    predictors %>% select(wcvp_id, n_specimens),
-    by="wcvp_id"
-  ) %>%
-  mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id) %>%
-  mutate(id2=NA_character_) %>%
-  select(id, id2, term, estimate, std.error, statistic, p.value)
+# tune hyperparameters if needed ----
+if (exists("hparam_grid")) {
+  cli_alert_info("Tuning on inner resamples to find best hyperparameters")
   
-## save outputs ----
-write_csv(threshold_performance, glue("{output_dir}/{output_name}_model-threshold_performance.csv"))
-write_csv(threshold_test_predictions, glue("{output_dir}/{output_name}_model-threshold_test-predictions.csv"))
-write_csv(threshold_predictions, glue("{output_dir}/{output_name}_model-threshold_predictions.csv"))
-write_csv(threshold_accuracy_models, glue("{output_dir}/{output_name}_model-threshold_accuracy-models.csv"))
-
-# conr threshold method -----
-
-## predict on bootstraps ----
-conr_test_predictions <-
-  threshold_splits %>%
-  mutate(.pred=future_map(splits, predict_conr)) %>%
-  select(id, .pred) %>%
-  unnest(cols=c(.pred))
-
-## evaluate performance ----
-conr_performance <-
-  conr_test_predictions %>%
-  group_by(id) %>%
-  eval_metrics(truth=obs, estimate=.pred_class) %>%
-  ungroup() %>%
-  # add an extra column to match other files
-  mutate(id2=NA_character_) %>%
-  select(id, id2, .metric, .estimate)
-
-## predict unlabelled data ----
-conr_predictions <-
-  predict_conr(unlabelled)
-
-## model accuracy against number of specimens ----
-conr_accuracy_models <-
-  conr_test_predictions %>%
-  left_join(
-    predictors %>% select(wcvp_id, n_specimens),
-    by="wcvp_id"
-  ) %>%
-  mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id) %>%
-  mutate(id2=NA_character_) %>%
-  select(id, id2, term, estimate, std.error, statistic, p.value)
-
-## save outputs ----
-write_csv(threshold_performance, glue("{output_dir}/{output_name}_model-conr_performance.csv"))
-write_csv(threshold_test_predictions, glue("{output_dir}/{output_name}_model-conr_test-predictions.csv"))
-write_csv(threshold_predictions, glue("{output_dir}/{output_name}_model-conr_predictions.csv"))
-write_csv(threshold_accuracy_models, glue("{output_dir}/{output_name}_model-conr_accuracy-models.csv"))
-
-# simple decision tree (stump) ----
-
-## specify formula ----
-stump_form <- formula(obs ~ eoo)
-
-## set up pre-processing ----
-stump_recipe <- 
-  recipe(stump_form, data=labelled)
-
-if (downsample) {
-  stump_recipe <-
-    stump_recipe %>%
-    themis::step_downsample(obs)
+  cluster_assign(
+    cluster,
+    #data
+    hparam_grid=hparam_grid,
+    wf=wf,
+    #functions
+    tune_over_folds=tune_over_folds,
+    tune_grid_iucnn=tune_grid_iucnn,
+    eval_iucnn_fold=eval_iucnn_fold,
+    eval_iucnn=eval_iucnn,
+    tune_metrics=tune_metrics
+  )
+  
+  tune_results <-
+    splits %>%
+    rowwise() %>%
+    partition(cluster) %>%
+    mutate(tuning=list(tune_over_folds(inner_resamples, wf, hparam_grid, tune_metrics))) %>%
+    collect()
+  
+  splits <- 
+    tune_results %>%
+    rowwise() %>%
+    mutate(best=list(select_best(tuning, metric="mn_log_loss"))) %>%
+    mutate(.workflow=list(finalize_workflow(wf, best))) %>%
+    select(-tuning) %>%
+    unnest(cols=c(best))
+  
+} else {
+  cli_alert_info("No hyperparameters to tune, just evaluating on outer folds")
+  splits <- 
+    splits %>%
+    mutate(.workflow=list(wf))
 }
 
-## specify model ----
-stump_spec <-
-  # forcing the tree to do a single split so it is a stump
-  decision_tree(tree_depth=1, min_n=1) %>%
-  set_engine("rpart") %>%
-  set_mode("classification")
-
-## chain pre-processing to model ----
-stump_wf <- 
-  workflow() %>%
-  add_model(stump_spec) %>%
-  add_recipe(stump_recipe)
-
 ## fit model ----
-stump_results <-
-  ml_splits %>%
-  mutate(.fit=future_map(splits, ~last_fit(stump_wf, .x, metrics=eval_metrics)))  
+cluster_assign(
+  cluster,
+  unlabelled=unlabelled,
+  IMPORTANCE=IMPORTANCE,
+  SHAPS=SHAPS,
+  evaluate_method=evaluate_method,
+  eval_metrics=eval_metrics,
+  get_predictions=get_predictions,
+  calculate_importance=calculate_importance,
+  calculate_shap=calculate_shap
+)
 
+results <-
+  splits %>%
+  rowwise() %>%
+  partition(cluster) %>%
+  mutate(.fit=list(evaluate_method(.workflow, splits, metrics=eval_metrics, newdata=unlabelled,
+                                   importance=IMPORTANCE, shap=SHAPS))) %>%
+  collect()
+
+cli_alert_success("Trained and evaluated model on assessed species")
 ## evaluate performance ----
-stump_performance <-
-  stump_results %>%
-  mutate(.performance=future_map(.fit, collect_metrics)) %>%
+performance <-
+  results %>%
+  rowwise() %>%
+  mutate(.performance=list(collect_metrics(.fit))) %>%
   select(id, id2, .performance) %>%
   unnest(cols=c(.performance)) %>%
   select(-.estimator, -.config)
 
-## get predictions for the test set, including probs ----
-stump_test_predictions <-
-  stump_results %>%
-  mutate(.preds=future_map(.fit, get_predictions)) %>%
+cli_h2("Estimated performance")
+performance %>%
+  group_by(.metric) %>%
+  summarise(mean=mean(.estimate, na.rm=TRUE),
+            lower95=quantile(.estimate, 0.025, na.rm=TRUE),
+            upper95=quantile(.estimate, 0.975, na.rm=TRUE))
+
+# get predictions for the test set, including probs ----
+test_predictions <-
+  results %>%
+  rowwise() %>%
+  mutate(.preds=list(.fit$.predictions[[1]])) %>%
   select(id, id2, .preds) %>%
   unnest(cols=c(.preds))
 
-## get predictions for unlabelled data, including probs ----
-stump_predictions <-
-  stump_results %>%
-  mutate(.preds=future_map(.fit, ~get_predictions(.x, unlabelled))) %>%
+# get predictions for unlabelled data, including probs ----
+
+predictions <-
+  results %>%
+  rowwise() %>%
+  mutate(.preds=list(.fit$.newpreds[[1]])) %>%
   select(id, id2, .preds) %>%
   unnest(cols=c(.preds))
 
-## make the learning curve ----
-stump_learning <-
-  ml_splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(stump_wf, .x, n=breaks))) %>%
-  select(id, id2, .learning) %>%
-  unnest(cols=c(.learning))
+cli_h2("Estimated proportion of unassessed species threatened")
 
-## model accuracy against number of specimens ----
-stump_accuracy_models <-
-  stump_test_predictions %>%
+predictions %>%
+  group_by(id) %>%
+  summarise(threatened=mean(.pred_class == "threatened")) %>%
+  summarise(mean=mean(threatened),
+            lower95=quantile(threatened, 0.025, na.rm=TRUE),
+            uppper95=quantile(threatened, 0.975, na.rm=TRUE))
+
+# extract importances if calculated ----
+
+if (IMPORTANCE) {
+  importances <- 
+    results %>%
+    rowwise() %>%
+    mutate(.importance=list(.fit$.importance[[1]])) %>%
+    select(id, id2, .importance) %>%
+    unnest(cols=c(.importance))
+}
+
+# extract shaps if calculated ----
+if (SHAPS) {
+  shaps <- 
+    results %>%
+    rowwise() %>%
+    mutate(.shap=list(.fit$.shap[[1]])) %>%
+    select(id, id2, .shap) %>%
+    unnest(cols=c(.shap))
+}
+
+# model accuracy against number of specimens ----
+accuracy_models <-
+  test_predictions %>%
   left_join(
     predictors %>% select(wcvp_id, n_specimens),
     by="wcvp_id"
@@ -245,336 +392,43 @@ stump_accuracy_models <-
   mutate(correct=.pred_class == obs) %>%
   apply_logistic_model(correct ~ log10(n_specimens), id, id2)
 
-## save outputs ----
-write_rds(stump_results, glue("{model_dir}/{output_name}_model-stump.rds"))
-write_csv(stump_performance, glue("{output_dir}/{output_name}_model-stump_performance.csv"))
-write_csv(stump_test_predictions, glue("{output_dir}/{output_name}_model-stump_test-predictions.csv"))
-write_csv(stump_predictions, glue("{output_dir}/{output_name}_model-stump_predictions.csv"))
-write_csv(stump_learning, glue("{output_dir}/{output_name}_model-stump_learning-curves-n.csv"))
-write_csv(stump_accuracy_models, glue("{output_dir}/{output_name}_model-stump_accuracy-models.csv"))
-
-rm(list=c("stump_results", "stump_performance", "stump_test_predictions", "stump_predictions",
-          "stump_learning", "stump_accuracy_models"))
-
-# decision tree ----
-
-## specify formula ----
-dt_form <- formula(obs ~ eoo + centroid_latitude + hfi + hpd + 
-                     forest_loss + temperature_annual + 
-                     precipitation_driest)
-
-## set up pre-processing ----
-dt_recipe <- 
-  recipe(dt_form, data=labelled)
-
-if (downsample) {
-  dt_recipe <-
-    dt_recipe %>%
-    themis::step_downsample(obs)
-}
-
-## specify model ----
-dt_spec <-
-  # keep the maximum depth low so still interpretable
-  decision_tree(tree_depth=5) %>%
-  set_engine("rpart") %>%
-  set_mode("classification")
-
-## chain pre-processing to model ----
-dt_wf <- 
-  workflow() %>%
-  add_model(dt_spec) %>%
-  add_recipe(dt_recipe)
-
-## fit model ----
-dt_results <-
-  ml_splits %>%
-  mutate(.fit=future_map(splits, ~last_fit(dt_wf, .x, metrics=eval_metrics)))  
-
-## evaluate performance ----
-dt_performance <-
-  dt_results %>%
-  mutate(.performance=future_map(.fit, collect_metrics)) %>%
-  select(id, id2, .performance) %>%
-  unnest(cols=c(.performance)) %>%
-  select(-.estimator, -.config)
-
-## get predictions for the test set, including probs ----
-dt_test_predictions <-
-  dt_results %>%
-  mutate(.preds=future_map(.fit, get_predictions)) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
-## get predictions for unlabelled data, including probs ----
-dt_predictions <-
-  dt_results %>%
-  mutate(.preds=future_map(.fit, ~get_predictions(.x, unlabelled))) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
 ## make the learning curve ----
-dt_learning <-
-  ml_splits %>%
-  mutate(.learning=future_map(splits, ~make_learning_curve(dt_wf, .x, n=breaks))) %>%
-  select(id, id2, .learning) %>%
-  unnest(cols=c(.learning))
-
-## model accuracy against number of specimens ----
-dt_accuracy_models <-
-  dt_test_predictions %>%
-  left_join(
-    predictors %>% select(wcvp_id, n_specimens),
-    by="wcvp_id"
-  ) %>%
-  mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
-
-## save outputs ----
-write_rds(dt_results, glue("{model_dir}/{output_name}_model-dt.rds"))
-write_csv(dt_performance, glue("{output_dir}/{output_name}_model-dt_performance.csv"))
-write_csv(dt_test_predictions, glue("{output_dir}/{output_name}_model-dt_test-predictions.csv"))
-write_csv(dt_predictions, glue("{output_dir}/{output_name}_model-dt_predictions.csv"))
-write_csv(dt_learning, glue("{output_dir}/{output_name}_model-dt_learning-curves-n.csv"))
-write_csv(dt_accuracy_models, glue("{output_dir}/{output_name}_model-dt_accuracy-models.csv"))
-
-rm(list=c("dt_results", "dt_performance", "dt_test_predictions", "dt_predictions",
-          "dt_learning", "dt_accuracy_models"))
-
-# random forest ----
-
-## define the model formula ----
-rf_form <- formula(obs ~ eoo + centroid_latitude + hfi + hpd + 
-                     forest_loss + temperature_annual + 
-                     precipitation_driest)
-
-## define the pre-processing steps ----
-rf_recipe <- 
-  recipe(rf_form, data=labelled) %>%
-  step_impute_knn(all_predictors()) %>%
-  step_corr(all_predictors(), threshold=0.9) %>%
-  step_zv(all_predictors()) %>%
-  step_normalize(all_predictors())
-
-if (downsample) {
-  rf_recipe <-
-    rf_recipe %>%
-    themis::step_downsample(obs)
-}
+if (METHOD_TYPE == "machine-learning") {
+  cli_alert_info("Evaluating performance when trained on {as.character(breaks)} example{?s}")
   
-## specify the model ----
-rf_spec <- 
-  rand_forest(
-    trees=1000,
-    mtry=tune(),
-    min_n=tune()
-  ) %>%
-  set_engine("randomForest", importance=TRUE) %>%
-  set_mode("classification")
-
-## chain the pre-processing to the model ----
-rf_wf <-
-  workflow() %>%
-  add_model(rf_spec) %>%
-  add_recipe(rf_recipe)
-
-## define hyperparameter grid ----
-rf_grid <-
-  grid_regular(
-    min_n(),
-    mtry(range=c(3, 7)),
-    levels=5
+  cluster_assign(
+    cluster, 
+    breaks=breaks,
+    make_learning_curve=make_learning_curve,
+    fit_sample=fit_sample,
+    wf=wf
   )
 
-## tune hyperparameters ----
-# evaluate performance over inner resamples
-rf_tune_results <-
-  ml_splits %>%
-  mutate(tuning=future_map(inner_resamples, tune_over_folds, rf_wf, rf_grid, tune_metrics))
-
-# select best params per fold based on loss
-rf_best <-
-  rf_tune_results %>%
-  rowwise() %>%
-  mutate(best=list(select_best(tuning, metric="mn_log_loss"))) %>%
-  mutate(wf=list(finalize_workflow(rf_wf, best))) %>%
-  select(-tuning) %>%
-  unnest(cols=c(best))
-
-## fit model ----
-rf_results <-
-  rf_best %>%
-  mutate(.fit=future_map2(wf, splits, ~last_fit(.x, .y, metrics=eval_metrics)))
-
-## extract the performance ----
-rf_performance <-
-  rf_results %>%
-  mutate(.performance=future_map(.fit, collect_metrics)) %>%
-  select(id, id2, .performance) %>%
-  unnest(cols=c(.performance)) %>%
-  select(-.estimator, -.config)
-
-## get predictions for the test set, including probs ----
-rf_test_predictions <-
-  rf_results %>%
-  mutate(.preds=future_map(.fit, get_predictions)) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
-## get predictions for unlabelled data, including probs ----
-rf_predictions <-
-  rf_results %>%
-  mutate(.preds=future_map(.fit, ~get_predictions(.x, unlabelled))) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
-## extract permutation feature importance from training ----
-rf_importance <-
-  rf_results %>%
-  mutate(.imp=future_map(.fit, get_importance)) %>%
-  select(id, id2, .imp) %>%
-  unnest(cols=c(.imp))
-
-## calculate permutation feature importance on test sets ----
-rf_valid_importance <-
-  rf_results %>%
-  mutate(.imp=future_map(.fit, ~get_importance(.x, "valid", eval_metrics))) %>%
-  select(id, id2, .imp) %>%
-  unnest(cols=c(.imp))
-
-## make the learning curve ----
-rf_learning <-
-  rf_results %>%
-  mutate(.learning=future_map2(wf, splits, ~make_learning_curve(.x, .y, n=breaks))) %>%
-  select(id, id2, .learning) %>%
-  unnest(cols=c(.learning))
-
-## model accuracy against number of specimens ----
-rf_accuracy_models <-
-  rf_test_predictions %>%
-  left_join(
-    predictors %>% select(wcvp_id, n_specimens),
-    by="wcvp_id"
-  ) %>%
-  mutate(correct=.pred_class == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
-
-## save outputs ----
-write_rds(rf_results, glue("{model_dir}/{output_name}_model-rf.rds"))
-write_csv(rf_performance, glue("{output_dir}/{output_name}_model-rf_performance.csv"))
-write_csv(rf_test_predictions, glue("{output_dir}/{output_name}_model-rf_test-predictions.csv"))
-write_csv(rf_predictions, glue("{output_dir}/{output_name}_model-rf_predictions.csv"))
-write_csv(rf_importance, glue("{output_dir}/{output_name}_model-rf_importance.csv"))
-write_csv(rf_valid_importance, glue("{output_dir}/{output_name}_model-rf_valid-importance.csv"))
-write_csv(rf_learning, glue("{output_dir}/{output_name}_model-rf_learning-curves-n.csv"))
-write_csv(rf_accuracy_models, glue("{output_dir}/{output_name}_model-rf_accuracy-models.csv"))
-
-rm(list=c("rf_results", "rf_performance", "rf_test_predictions", "rf_predictions",
-          "rf_learning", "rf_accuracy_models", "rf_importance", "rf_valid_importance",
-          "rf_tune_results", "rf_best"))
-
-# neural networks ----
-## define the model formula ----
-nn_form <- formula(obs ~ eoo + centroid_latitude + hfi + hpd + 
-                     forest_loss + temperature_annual + 
-                     precipitation_driest)
-
-## define the pre-processing steps ----
-nn_recipe <- 
-  recipe(nn_form, data=labelled) %>%
-  step_impute_knn(all_predictors()) %>%
-  step_corr(all_predictors(), threshold=0.9) %>%
-  step_zv(all_predictors()) %>%
-  step_normalize(all_predictors())
-
-if (downsample) {
-  nn_recipe <-
-    nn_recipe %>%
-    themis::step_downsample(obs)
+  learning <-
+    results %>%
+    rowwise() %>%
+    partition(cluster) %>%
+    mutate(.learning=list(make_learning_curve(.workflow, splits, n=breaks))) %>%
+    collect() %>%
+    select(id, id2, .learning) %>%
+    unnest(cols=c(.learning))
 }
 
-## define hyperparameter grid ----
+## save outputs ----
+write_rds(results, glue("{model_dir}/{name}_model-{method}.rds"))
+write_csv(performance, glue("{output_dir}/{name}_model-{method}_performance.csv"))
+write_csv(test_predictions, glue("{output_dir}/{name}_model-{method}_test-predictions.csv"))
+write_csv(predictions, glue("{output_dir}/{name}_model-{method}_predictions.csv"))
+write_csv(accuracy_models, glue("{output_dir}/{name}_model-{method}_accuracy-models.csv"))
 
-# using settings as used in the IUCNN paper
-params <- list(dropout=c(0, 0.1, 0.3),
-               layers=list(c(30), c(40, 20), c(50, 30, 10)))
+if (IMPORTANCE) {
+  write_csv(importances, glue("{model_dir}/{name}_model-{method}_permutation-importance.csv"))
+}
 
-nn_grid <-
-  expand.grid(params) %>%
-  as_tibble()
-  
-## tune hyperparameters ----
-# evaluate performance over inner resamples
-nn_tune_results <-
-  ml_splits %>%
-  mutate(tuning=future_map(inner_resamples, tune_densenet_over_folds, nn_grid, nn_recipe))
+if (SHAPS) {
+  write_csv(shaps, glue("{model_dir}/{name}_model-{method}_shap-values.csv"))
+}
 
-# select best params per fold based on loss
-nn_best <-
-  nn_tune_results %>%
-  rowwise() %>%
-  mutate(best=list(slice_min(tuning, loss))) %>%
-  unnest(best) %>%
-  select(-tuning, -loss, -accuracy)
-
-## eval model ----
-# can't do parallel because keras relies on non-exportable pointers
-nn_results <-
-  nn_best %>%
-  mutate(.fit=pmap(list(splits, dropout, layers, epoch), 
-                          function(a,b,c,d) fit_final_densenet(a, nn_recipe, dropout=b, layers=c, epochs=d)))
-
-write_rds(nn_results, glue("{model_dir}/{output_name}_model-nn.rds"))
-## extract the performance ----
-nn_performance <-
-  nn_results %>%
-  mutate(.performance=future_map(.fit, ~eval_metrics(.x$.pred, truth="obs", estimate=".pred_class"))) %>%
-  select(id, id2, .performance) %>%
-  unnest(cols=c(.performance)) %>%
-  select(-.estimator)
-
-write_csv(nn_performance, glue("{output_dir}/{output_name}_model-nn_performance.csv"))
-## get predictions for the test set, including probs ----
-nn_test_predictions <-
-  nn_results %>%
-  mutate(.preds=future_map(.fit, ~.x$.pred)) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
-write_csv(nn_test_predictions, glue("{output_dir}/{output_name}_model-nn_test-predictions.csv"))
-## get predictions for unlabelled data, including probs ----
-nn_predictions <-
-  nn_results %>%
-  mutate(.preds=map2(.fit, splits, ~predict_densenet(.x$.fit, unlabelled, .y, preprocessor=nn_recipe))) %>%
-  select(id, id2, .preds) %>%
-  unnest(cols=c(.preds))
-
-write_csv(nn_predictions, glue("{output_dir}/{output_name}_model-nn_predictions.csv"))
-## calculate permutation feature importance on test sets ----
-nn_valid_importance <-
-  nn_results %>%
-  mutate(.imp=map2(.fit, splits, ~densenet_importance(.x$.fit, .y, nn_recipe))) %>%
-  select(id, id2, .imp) %>%
-  unnest(cols=c(.imp))
-
-write_csv(nn_valid_importance, glue("{output_dir}/{output_name}_model-nn_valid-importance.csv"))
-## make the learning curve ----
-nn_learning <-
-  nn_results %>%
-  mutate(.learning=future_pmap(list(splits, dropout, layers, epoch),
-                               function(a,b,c,d) make_densenet_learning_curve(a, nn_recipe, dropout=b, layers=c, epochs=d, n=breaks))) %>%
-  select(id, id2, .learning) %>%
-  unnest(cols=c(.learning))
-
-write_csv(nn_learning, glue("{output_dir}/{output_name}_model-nn_learning-curves-n.csv"))
-## model accuracy against number of specimens ----
-nn_accuracy_models <-
-  nn_test_predictions %>%
-  left_join(
-    predictors %>% select(wcvp_id, n_specimens),
-    by="wcvp_id"
-  ) %>%
-  mutate(correct=factor(.pred_class, levels=levels(obs), ordered=FALSE) == obs) %>%
-  apply_logistic_model(correct ~ log10(n_specimens), id, id2)
-
-write_csv(nn_accuracy_models, glue("{output_dir}/{output_name}_model-nn_accuracy-models.csv"))
+if (METHOD_TYPE == "machine-learning") {
+  write_csv(learning, glue("{output_dir}/{name}_model-{method}_learning-curves-n.csv"))
+}
