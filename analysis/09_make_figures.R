@@ -1,54 +1,104 @@
 #' Script to make all figures for manuscript.
 #' 
-#' All figures are saved as SVG. I used inkscape to convert them to PNG or PDF at 600 dpi.
+#' All figures are saved as SVG. I used inkscape to convert them to PNG or PDF at 600 dpi, and to edit figure 1.
 #' 
 #' EXPECTED INPUTS:
-#'  - `output_dir`: path to a directory to save figures in (must exist)
+#'  - `results_dir`: path to a directory containing the summarised results files,
+#'          the output of `analysis/08_summarise_results.R`
+#'  - `figure_dir`: path to a directory to save figures in
+#' 
+#' EXAMPLE CLI:
+#'  RScript analysis/09_make_figures.R
+#' 
+#' EXAMPLE SOURCE:
+#'  results_dir <- "output/summarised-results"
+#'  figure_dir <- "figures"
+#'  source("analysis/09_make_figures.R")
 #' 
 
 # libraries ----
-library(here)       # handle file paths
-library(vroom)      # fast reading/writing for text files
-library(dplyr)      # manipulate data
-library(readr)      # read/write text and data files
-library(tidyr)      # reshape data
-library(ggplot2)    # plotting
-library(stringr)    # manipulate strings
-library(glue)       # string interpolation
-library(scales)     # nice scales for ggplot
-library(ggforce)    # helps to make a swarm plot
-library(ggridges)   # helps to make stacked histogram plots
-library(patchwork)  # joins ggplots together nicely
+shhlibrary <- function(...) suppressPackageStartupMessages(library(...))
+shhlibrary(here)       # handle file paths
+shhlibrary(vroom)      # fast reading/writing for text files
+shhlibrary(dplyr)      # manipulate data
+shhlibrary(readr)      # read/write text and data files
+shhlibrary(tidyr)      # reshape data
+shhlibrary(ggplot2)    # plotting
+shhlibrary(stringr)    # manipulate strings
+shhlibrary(glue)       # string interpolation
+shhlibrary(scales)     # nice scales for ggplot
+shhlibrary(ggforce)    # helps to make a swarm plot
+shhlibrary(ggridges)   # helps to make stacked histogram plots
+shhlibrary(ggdist)     # visualisations for distributions
+shhlibrary(patchwork)  # joins ggplots together nicely
+shhlibrary(cli)        # nice command line interface
 
 source(here("R/plotting_functions.R"))
 
+# CLI ----
+cli_h1("Generating figures")
+
+if (sys.nframe() == 0L) {
+  default_args <- list(
+    results_dir="output/summarised-results",
+    figure_dir="output/figures"
+  )
+  args <- R.utils::commandArgs(asValues=TRUE,
+                               excludeReserved=TRUE, excludeEnvVars=TRUE,
+                               defaults=default_args)
+  
+  results_dir <- args$results_dir
+  figure_dir <- args$figure_dir
+}
+
+if (! exists("results_dir")) {
+  cli_abort(c(
+    "no path to results folder",
+    "x"="You must provide a path to a folder containing results files as {.var results_dir}."
+  ))
+}
+
+if (! exists("figure_dir")) {
+  cli_abort(c(
+    "no path to save summarised results",
+    "x"="You must provide a path to a folder to save figures to as {.var output_dir}."
+  ))
+}
+
+dir.create(figure_dir, showWarnings=FALSE)
+cli_alert_info("Saving figures to {.file {figure_dir}}")
+
 # load data ----
 ## data summary statistics ----
-processing_stats <- vroom(here("output/results/processing_stats.csv"))
-occurrence_stats <- vroom(here("output/results/occurrence_stats.csv"))
-species_list_stats <- vroom(here("output/results/species_list_stats.csv"))
+processing_stats <- vroom(file.path(results_dir, "processing-stats.csv"))
+occurrence_stats <- vroom(file.path(results_dir, "occurrence-stats.csv"))
+species_list_stats <- vroom(file.path(results_dir, "species-list-stats-numbers.csv"))
 
 ## method performance ----
-performance <- vroom(here("output/results/performance.csv"))
-group_performance <- vroom(here("output/results/groupwise_performance.csv"))
+performance <- vroom(file.path(results_dir, "performance.csv"))
+group_performance <- vroom(file.path(results_dir, "groupwise-performance.csv"))
 
 ## predictions of threat ----
-predicted_threat <- vroom(here("output/results/predictions.csv"))
-group_predictions <- vroom(here("output/results/groupwise_predictions.csv"))
+predicted_threat <- vroom(file.path(results_dir, "predictions.csv"))
+group_predictions <- vroom(file.path(results_dir, "groupwise-predictions.csv"))
+
+## criteria data ----
+criteria_table <- vroom(file.path(results_dir, "criteria-table-percents.csv"))
+criteria_performance <- vroom(file.path(results_dir, "criteria-performance.csv"))
 
 ## learning curves ----
-learning_curves <- vroom(here("output/results/learning_curves_n.csv"))
+learning_curves <- vroom(file.path(results_dir, "learning-curve-summaries.csv"))
 
 ## decision stump boundaries ----
-stump_splits <- vroom(here("output/results/decision_stump_splits.csv"))
+stump_splits <- vroom(file.path(results_dir, "decision-stump-splits.csv"))
 
 ## SHAPs ----
-shap_values <- vroom(here("output/results/random_forest_explanation_examples.csv"))
-orchid_predictions <- vroom(here("output/results/orchid_test_predictions.csv"))
-orchid_list <- vroom(here("output/orchid-rl_species-list.csv"))
+shap_values <- vroom(file.path(results_dir, "shap-values.csv"))
+orchid_predictions <- vroom(file.path(results_dir, "orchid-test-predictions.csv"))
+orchid_list <- vroom(file.path("output/species-lists", "orchids_species-list.csv"))
 
 ## decision tree example ----
-tree <- read_rds(here("output/results/decision_tree_example.rds"))
+tree <- read_rds(file.path(results_dir, "decision_tree_example.rds"))
 
 # 1. performance grid ----
 # small multiples of heatmaps, a row for each species group,
@@ -59,25 +109,27 @@ tree <- read_rds(here("output/results/decision_tree_example.rds"))
 performance_grid <-
   performance %>%
   filter(downsample == "no",
+         cv == "random",
          target == "IUCN RL",
          .metric == "TSS",
          group != "All") %>%
   mutate(group=factor(group, levels=group_names_small, ordered=TRUE),
-         model=factor(model, levels=model_names, ordered=TRUE)) %>%
-  complete(filter, 
-           nesting(group, clean, model)) %>%
-  group_by(group, clean, model) %>%
+         method=factor(method, levels=method_names, ordered=TRUE)) %>%
+  complete(filter,
+           nesting(group, clean, method)) %>%
+  group_by(group, clean, method) %>%
   fill(.value) %>%
   ungroup() %>%
   ggplot(mapping=aes(x=clean, y=filter, fill=.value)) +
   geom_tile() +
   geom_vline(xintercept=4.5, colour="red") +
-  facet_grid(group ~ model) +
+  facet_grid(group ~ method) +
   coord_equal() +
   scale_x_discrete(drop=FALSE, expand=c(0,0)) +
   scale_y_discrete(drop=FALSE, expand=c(0,0), 
                    limits=c("4", "3", "2", "1")) +
-  viridis::scale_fill_viridis(name="True skill statistic", 
+  scico::scale_fill_scico(name="True skill statistic", 
+                          palette="batlow",
                               direction=1, limits=c(0, 1)) +
   labs(x="Coordinate cleaning step", y="Record filtering step") +
   guides(fill=guide_colorbar(title.position="top", title.hjust=0, 
@@ -85,54 +137,9 @@ performance_grid <-
   theme_grid() +
   theme(panel.grid.major.x=element_blank())
 
-ggsave(paste(output_dir, "figure-1_performance-grid.svg", sep="/"), 
-       performance_grid, height=7, width=7)
+ggsave(file.path(figure_dir, "figure-1_performance-grid.svg"), performance_grid, height=10, width=8)
 
-# 2. data cleaning stats ----
-# small multiples of bar charts, with a row for each species group
-# and a column for each filter step. coordinate cleaning step along the
-# x-axis, and number of species on the y-axis. the bars are stacked
-# with the darkest colour at the bottom for species with non-DD assessments,
-# the next colour for species without non-DD assessments, and greyed-out on
-# top for species without any occurrence records.
-
-species_coverage <-
-  processing_stats %>%
-  left_join(
-    species_list_stats %>% select(group, target, total=species),
-    by=c("group", "target")
-  ) %>%
-  mutate(unlabelled=species - labelled,
-         unavailable=total - species) %>%
-  select(group, target, filter, clean, labelled, unlabelled, unavailable) %>%
-  pivot_longer(cols=c(labelled, unlabelled, unavailable), names_to="status", values_to="n") %>%
-  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
-                         TRUE ~ group),
-         status=recode(status, !!! status_names)) %>%
-  mutate(group=factor(group, levels=group_names, ordered=TRUE),
-         status=factor(status, levels=rev(status_names), ordered=TRUE)) %>%
-  complete(filter, 
-           nesting(group, clean, status)) %>%
-  group_by(group, clean, status) %>%
-  fill(n) %>%
-  ggplot(mapping=aes(x=clean, y=n, fill=status)) +
-  geom_col() +
-  scale_y_continuous(labels=label_comma()) +
-  scale_fill_manual(values=status_colours, name="") +
-  labs(x="Coordinate cleaning step", y="Species") +
-  facet_grid(group ~ filter, scales="free_y",
-             labeller=labeller(filter=as_labeller(filter_labeller))) +
-  theme_grid() +
-  theme(
-    panel.grid.major.x=element_blank(),
-    panel.grid.major.y=element_line(linetype=3, colour="grey80")
-  )
-
-ggsave(paste(output_dir, "figure-2_cleaning-species-coverage.svg", sep="/"),
-       species_coverage,
-       height=5, width=7)
-
-# 3. sample choice exploration ----
+# 2. sample choice exploration ----
 # three subplots:
 # - small multiples with a column for each model comparing
 #   learning curves for models trained on the SRLI legumes
@@ -149,41 +156,75 @@ learning_comparison <-
   learning_curves %>%
   filter(group == "Legumes",
          downsample == "yes",
+         cv == "random",
          filter == 1,
          clean == "A",
          .metric == "TSS") %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=group_names, ordered=TRUE),
-         model=factor(model, levels=model_names, ordered=TRUE)) %>%
-  ggplot(mapping=aes(x=.n, y=.estimate, colour=target)) +
-  geom_line(mapping=aes(group=paste0(id, id2, group)), alpha=0.1) +
-  stat_summary(geom="line", fun=median, size=1) +
-  scale_y_continuous(limits=c(0, 1)) +
+         method=factor(method, levels=method_names, ordered=TRUE)) %>%
+  ggplot(mapping=aes(x=.n, y=.value, colour=target)) +
+  geom_ribbon(mapping=aes(ymin=.lower, ymax=.upper, fill=target), alpha=0.5,
+              show.legend=FALSE) +
+  geom_line(size=1, show.legend=FALSE) +
+  geom_point(size=3) +
+  scale_y_continuous(limits=c(-0.5, 1)) +
   scale_x_continuous(breaks=seq(from=50, to=175, by=25)) +
   scale_colour_manual(values=target_colours, name="") +
-  labs(x="Number of training examples", y="True skill statistic") +
-  facet_grid(~ model) +
+  guides(colour=guide_legend(nrow=2, override.aes=list(size=3))) +
+  scale_fill_manual(values=target_colours, name="") +
+  labs(x="# training examples", y="True skill statistic") +
+  facet_grid(rows="method") +
   theme_grid()
-
 
 ## SRLI legume downsampling vs. no downsampling
 downsample_srli_comparison <-
   performance %>%
   filter(group == "Legumes",
          target == "SRLI",
+         cv == "random",
          filter == 1,
-         clean == "A") %>%
-  mutate(model=factor(model, levels=model_names, ordered=TRUE),
+         clean == "A",
+         ! method %in% c("EOO threshold", "ConR")) %>%
+  mutate(method=factor(method, levels=method_names, ordered=TRUE),
          downsample=recode(downsample, !!! downsample_names)) %>%
-  ggplot(mapping=aes(x=model, y=.value, ymin=.lower, ymax=.upper)) +
+  ggplot(mapping=aes(x=.metric, y=.value, ymin=.lower, ymax=.upper)) +
   geom_pointrange(mapping=aes(colour=downsample),
-                  position=position_dodge(width=0.5)) +
+                  position=position_dodge(width=0.5),
+                  fatten=2, size=1) +
   scale_y_continuous(limits=c(0, 1)) +
   scale_colour_manual(values=downsample_colours, name="") +
+  guides(colour=guide_legend(nrow=2, override.aes=list(size=0.6, linetype=0))) +
   coord_flip() +
-  facet_grid(~.metric) +
+  facet_grid(rows="method") +
   labs(y="", x="") +
+  theme_grid()
+  
+## grouped cv vs random ----
+cv_comparison <-
+  performance %>%
+  filter(downsample == "no",
+         clean == "A",
+         target == "IUCN RL",
+         filter == 1,
+         .metric == "TSS",
+         ! method %in% c("EOO threshold", "ConR")) %>%
+  mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
+                         TRUE ~ group),
+         cv=recode(cv, !!! cv_names)) %>%
+  mutate(group=factor(group, levels=rev(group_names), ordered=TRUE),
+         method=factor(method, levels=method_names, ordered=TRUE),
+         cv=factor(cv, levels=cv_names, ordered=TRUE)) %>%
+  ggplot(mapping=aes(x=.value, xmin=.lower, xmax=.upper, y=group)) +
+  geom_pointrange(mapping=aes(colour=cv),
+                  position=position_dodge(width=0.5),
+                  fatten=2, size=1) +
+  scale_colour_manual(values=cv_colours, name="") +
+  scale_x_continuous(limits=c(-0.05, 1.05)) +
+  guides(colour=guide_legend(nrow=2, override.aes=list(size=0.6, linetype=0))) +
+  facet_grid(rows="method") +
+  labs(y="", x="True skill statistic") +
   theme_grid()
 
 ## combined vs. individual performance on each group ----
@@ -193,37 +234,79 @@ group_prediction_comparison <-
   bind_rows(
     predicted_threat %>% mutate(type="individual")
   ) %>%
-  filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & model != "IUCN threshold" | downsample == "no" & model == "IUCN threshold",
-         group != "All",
+  filter(downsample == "no" & group != "Legumes" | downsample == "yes" & group == "Legumes" & !method %in% c("EOO threshold", "ConR") | downsample == "no" & method %in% c("EOO threshold", "ConR"),
+         #group != "All",
          filter == 1,
          clean == "A",
          target == "IUCN RL",
-         coverage == "unassessed") %>%
+         cv == "random",
+         coverage == "unassessed",
+         ! method %in% c("EOO threshold", "ConR")) %>%
   slice_max(.width) %>%
   mutate(group=case_when(group == "Legumes" ~ glue("Legumes\n({target})"),
                          TRUE ~ group)) %>%
   mutate(group=factor(group, levels=rev(group_names), ordered=TRUE),
-         model=factor(model, levels=model_names, ordered=TRUE)) %>%
+         method=factor(method, levels=method_names, ordered=TRUE)) %>%
   ggplot(mapping=aes(x=group, y=.value, ymin=.lower, ymax=.upper)) +
   geom_pointrange(mapping=aes(colour=type),
-                  position=position_dodge(width=0.5)) +
+                  position=position_dodge(width=0.5),
+                  fatten=2, size=1) +
   scale_y_continuous(limits=c(0,1), labels=label_percent()) +
   scale_colour_manual(values=pooling_colours, name="") +
+  guides(colour=guide_legend(nrow=2, override.aes=list(size=0.6, linetype=0))) +
   coord_flip() +
-  labs(x="", y="Predicted proportion threatened") +
-  facet_grid(~ model) +
+  labs(x="", y="Predicted proportion\nthreatened") +
+  facet_grid(rows="method") +
   theme_grid()
 
 ## join all plots together and save ----
-sample_choice_plot <-
-  (downsample_srli_comparison / learning_comparison / group_prediction_comparison) +
-  plot_annotation(tag_levels="A") &
-  theme(legend.position="right",
-        panel.spacing.x=unit(1, "lines")) 
 
-ggsave(paste(output_dir, "figure-3_sample-choice_comparison.svg", sep="/"),
-       sample_choice_plot,
-       height=5, width=10)
+sample_choice_plot <-
+  (downsample_srli_comparison + learning_comparison + cv_comparison + group_prediction_comparison) +
+  plot_layout(ncol=4) +
+  plot_annotation(tag_levels="A") &
+  theme(legend.position="bottom",
+        plot.margin=margin(15, 3, 3, 3),
+        plot.tag.position=c(0.25, 1.05))
+
+ggsave(file.path(figure_dir, "figure-2_sample-choice_comparison.svg"), sample_choice_plot, height=5.5, width=10)
+
+# 3. performance of different models across cited criteria ----
+# small multiples comparing accuracy at predicting threatened species when
+# each criteria is cited vs not cited
+criteria_plot <-
+  criteria_performance %>%
+  filter(downsample == "no",
+         group != "All",
+         target == "IUCN RL",
+         filter == "1",
+         clean == "A",
+         .metric == "Accuracy",
+         cv == "random") %>%
+  mutate(group=factor(group, levels=rev(group_names_small), ordered=TRUE),
+         method=factor(method, levels=method_names, ordered=TRUE),
+         has_criteria=ifelse(has_criteria, "criterion cited", "not cited")) %>%
+  ggplot(mapping=aes(x=.estimate, y=group, colour=has_criteria)) +
+  stat_pointinterval(position=position_dodge(), size=1, .width=0.95) + 
+  scale_colour_manual(values=c("criterion cited"="orange","not cited"="grey80"),
+                      name="") +
+  scale_x_continuous(labels=scales::percent_format(),
+                     expand=expansion(mult=0.2),
+                     breaks=c(0, 0.5, 1)) +
+  facet_grid(criteria ~ method) +
+  labs(x="Accuracy", y="") +
+  theme_grid() +
+  theme(
+    panel.grid.major.x=element_line(linetype=3, colour="grey80"),
+    panel.grid.major.y=element_blank(),
+    panel.grid.minor.y=element_blank(),
+    panel.border=element_rect(colour="grey60"),
+    strip.background=element_rect(colour="grey60"),
+    legend.position="bottom"
+  )
+
+ggsave(file.path(figure_dir, "figure-3_criteria-comparison.svg"),
+       criteria_plot, height=5, width=7)
 
 # 4. explanations comparison ----
 # five subplots demonstrating ways of interpreting machine-learning AA methods:
@@ -240,7 +323,7 @@ ggsave(paste(output_dir, "figure-3_sample-choice_comparison.svg", sep="/"),
 # sample things the orchid model got wrong
 wrong_orchids <- 
   orchid_predictions %>%
-  filter(model == "Random forest") %>%
+  filter(method == "Random forest") %>%
   group_by(wcvp_id) %>%
   summarise(accuracy=mean(obs == .pred_class),
             .groups="drop") %>%
@@ -254,6 +337,12 @@ examples <- sample(wrong_orchids$wcvp_id, 5)
 ### predictor importance (global) ----
 shap_importance <-
   shap_values %>%
+  filter(downsample == "no",
+         group == "Orchids",
+         cv == "random",
+         method == "Random forest",
+         filter == 1,
+         clean == "A") %>%
   group_by(feature, id, id2) %>%
   summarise(importance=mean(abs(shap)),
             .groups="drop") %>%
@@ -267,15 +356,19 @@ shap_importance <-
 ### partial dependence plot (global) ----
 partial_dependence <-
   shap_values %>%
+  filter(downsample == "no",
+         group == "Orchids",
+         cv == "random",
+         method == "Random forest",
+         filter == 1,
+         clean == "A") %>%
   group_by(wcvp_id, feature) %>%
   summarise(shap=mean(shap),
-            prob=mean(prob),
-            mean_prob=mean(mean_prob),
             value=first(value),
             .groups="drop") %>%
   mutate(feature=reorder(feature, abs(shap), FUN=mean)) %>%
   nest_by(feature) %>%
-  mutate(scaled_value=list(scale_values(data$value, log=(feature %in% c("eoo", "hpd"))))) %>%
+  mutate(scaled_value=list(scale_values(data$value, log=(feature %in% c("eoo", "human_population"))))) %>%
   unnest(cols=c(data, scaled_value)) %>%
   mutate(feature=recode(feature, !!! feature_names)) %>%
   ungroup()
@@ -300,13 +393,41 @@ shap_dependence <-
   theme(legend.position="bottom")
 
 ### force plot example (local) ----
+orchid_probs <-
+  orchid_predictions %>%
+  filter(downsample == "no",
+         group == "Orchids",
+         cv == "random",
+         method == "Random forest",
+         filter == 1,
+         clean == "A") %>%
+  group_by(wcvp_id) %>%
+  summarise(prob=mean(.pred_prob),
+            .groups="drop")
+
+mean_prob <- 
+  orchid_predictions %>%
+  filter(downsample == "no",
+         group == "Orchids",
+         cv == "random",
+         method == "Random forest",
+         filter == 1,
+         clean == "A") %>%
+  pull(.pred_prob) %>%
+  mean()
+  
 explanation_example <-
   partial_dependence %>%
-  filter(wcvp_id == "660763-1") %>%
+  filter(wcvp_id == last(examples)) %>%
   left_join(
     orchid_list %>% select(id, name, category),
     by=c("wcvp_id"="id")
   ) %>%
+  left_join(
+    orchid_probs,
+    by="wcvp_id"
+  ) %>%
+  mutate(mean_prob=mean_prob) %>%
   mutate(units=recode(feature, !!! units)) %>%
   mutate(value_label=format_value(value, units)) %>%
   arrange(feature) %>%
@@ -369,20 +490,28 @@ stump_summary <-
   stump_splits %>%
   filter(group == "Orchids",
          filter == 1, clean == "A",
-         downsample == "no") %>%
+         downsample == "no", cv == "random") %>%
   summarise(.value=mean(split),
             .lower=quantile(split, 0.025),
             .upper=quantile(split, 0.975))
 
 stump_plot <-
   shap_values %>%
+  filter(downsample == "no",
+         group == "Orchids",
+         cv == "random",
+         method == "Random forest",
+         filter == 1,
+         clean == "A") %>%
   filter(feature == "eoo") %>%
   mutate(value=log10(value + 1)) %>%
   distinct(wcvp_id, value) %>%
   left_join(
-    orchid_predictions %>% 
-      distinct(wcvp_id, obs),
-    by=c("wcvp_id")
+    orchid_list %>% 
+      filter(category != "DD", ! is.na(category)) %>%
+      mutate(obs=ifelse(category %in% c("LC", "NT"), "not threatened", "threatened")) %>%
+      select(id, obs),
+    by=c("wcvp_id"="id")
   ) %>%
   ggplot() +
   geom_density_ridges(mapping=aes(x=value, y=obs),
@@ -447,7 +576,7 @@ labels <-
   mutate(var=recode(var, !!! feature_names)) %>%
   mutate(units=recode(var, !!! units)) %>%
   rowwise() %>%
-  mutate(label=glue("{var} {sign} {format(val, digits=2, big.mark=',')} {units}")) %>%
+  mutate(label=glue("{var} {sign} {format_value(val, units)}")) %>%
   ungroup()
   
 leaves <-
@@ -485,7 +614,7 @@ decision_tree <-
                size=2, vjust=0) +
     scale_fill_distiller(palette="RdYlGn") +
     scale_x_continuous(expand=expansion(mult=0.1)) +
-    guides(fill=FALSE) +
+    guides(fill="none") +
     theme_void()
 
 ## join all subplots ----
@@ -493,5 +622,5 @@ explanation_plots <-
   (stump_plot + decision_tree) / shap_plots +
   plot_annotation(tag_levels="A")
 
-ggsave(paste(output_dir, "figure-4_explanations.svg", sep="/"),
+ggsave(file.path(figure_dir, "figure-4_explanations.svg"),
        explanation_plots, height=7, width=11)
