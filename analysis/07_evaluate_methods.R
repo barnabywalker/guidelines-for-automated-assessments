@@ -240,7 +240,14 @@ tune_metrics <- metric_set(accuracy, roc_auc, mn_log_loss)
 eval_metrics <- metric_set(accuracy, sens, spec, j_index)
 
 # define sample sizes for learning curves ----
-breaks <- seq(from=50, to=175, by=25)
+if (str_detect(predictor_file, "legume") & srli) {
+  breaks <- seq(from=100, to=600, by=100)
+} else if (str_detect(predictor_file, "legume")) {
+  breaks <- seq(from=100, to=600, by=100)
+  breaks <- c(breaks, 1000, 1500, 2000, 2500, 3000)
+} else {
+  breaks <- seq(from=50, to=175, by=25)
+}
 
 # set up cluster ----
 ncores <- parallelly::availableCores()
